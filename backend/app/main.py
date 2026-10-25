@@ -1,10 +1,6 @@
-<<<<<<< Updated upstream
-import os, re, json, uuid, logging, hashlib, jwt
-=======
-import os, re, uuid, logging, hashlib, jwt, threading
+import os, re, json, uuid, logging, hashlib, jwt, threading
 from io import BytesIO
 from zipfile import BadZipFile
->>>>>>> Stashed changes
 from typing import Optional
 from dotenv import load_dotenv
 load_dotenv()
@@ -27,7 +23,6 @@ SECRET = os.environ["JWT_SECRET"]
 STORE = os.getenv("STORAGE_DIR", "./data/files"); os.makedirs(STORE, exist_ok=True)
 PUBLIC = os.getenv("PUBLIC_URL", "http://localhost:5173")
 EXT, MAX_BYTES = {"pdf", "jpg", "jpeg", "png", "docx", "txt"}, 25 << 20
-<<<<<<< Updated upstream
 NOTE_MAX = 100  # short note shown to students under each document
 # Questions staff answer at upload time. key -> (label, placeholder example for the note)
 CATEGORIES = {
@@ -42,9 +37,7 @@ CATEGORIES = {
     "event":       ("Event",        "e.g. Annual day on 15 Dec, all students invited"),
     "other":       ("Other",        "e.g. Short summary of what this document is about"),
 }
-=======
 MAX_STUDENT_IMPORT_BYTES, MAX_STUDENT_IMPORT_ROWS = 5 << 20, 1000
->>>>>>> Stashed changes
 NOT_FOUND = "I couldn't find this in the available published documents. Please check with the college office."
 
 DB_URL = os.getenv("DATABASE_URL", "sqlite:///./data/campusflow.db")  # PostgreSQL URL also works
@@ -95,17 +88,14 @@ def boot():
     cols = [c["name"] for c in sa_inspect(eng).get_columns("chat_messages")]
     if "session_id" not in cols:
         with eng.begin() as c: c.execute(sa_text("ALTER TABLE chat_messages ADD COLUMN session_id INTEGER"))
-<<<<<<< Updated upstream
     doc_cols = [c["name"] for c in sa_inspect(eng).get_columns("documents")]
     for col, ddl in (("category", "VARCHAR"), ("note", f"VARCHAR({NOTE_MAX})")):
         if col not in doc_cols:
             with eng.begin() as c: c.execute(sa_text(f"ALTER TABLE documents ADD COLUMN {col} {ddl}"))
-=======
     # upgrade: add email column if missing
     user_cols = [c["name"] for c in sa_inspect(eng).get_columns("users")]
     if "email" not in user_cols:
         with eng.begin() as c: c.execute(sa_text("ALTER TABLE users ADD COLUMN email TEXT"))
->>>>>>> Stashed changes
     with Session_() as s:
         for (sid,) in s.query(Message.student_id).filter(Message.session_id.is_(None)).distinct().all():
             cs = ChatSession(student_id=sid, title="Earlier questions"); s.add(cs); s.flush()
