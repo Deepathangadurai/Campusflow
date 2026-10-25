@@ -1,9 +1,9 @@
-import os, re, uuid, logging, hashlib, jwt
+import os, re, json, uuid, logging, hashlib, jwt
 from typing import Optional
 from dotenv import load_dotenv
 load_dotenv()
 from datetime import datetime, timedelta
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, BackgroundTasks, Header
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks, Header
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -18,6 +18,20 @@ SECRET = os.environ["JWT_SECRET"]
 STORE = os.getenv("STORAGE_DIR", "./data/files"); os.makedirs(STORE, exist_ok=True)
 PUBLIC = os.getenv("PUBLIC_URL", "http://localhost:5173")
 EXT, MAX_BYTES = {"pdf", "jpg", "jpeg", "png", "docx", "txt"}, 25 << 20
+NOTE_MAX = 100  # short note shown to students under each document
+# Questions staff answer at upload time. key -> (label, placeholder example for the note)
+CATEGORIES = {
+    "leave":       ("Leave",        "e.g. Apply for on-duty leave by Friday 5 PM"),
+    "fees":        ("Fees",         "e.g. Last date to pay semester fee is 30 Nov"),
+    "competition": ("Competition",  "e.g. Inter-college coding contest, register by 5 Nov"),
+    "symposium":   ("Symposium",    "e.g. National AI symposium on 12 Dec, free entry"),
+    "exam":        ("Exam",         "e.g. End-semester exams start on 2 Dec"),
+    "scholarship": ("Scholarship",  "e.g. Merit scholarship forms open until 20 Nov"),
+    "holiday":     ("Holiday",      "e.g. College closed on 1 Nov for Kannada Rajyotsava"),
+    "placement":   ("Placement",    "e.g. TCS campus drive on 8 Nov, final years only"),
+    "event":       ("Event",        "e.g. Annual day on 15 Dec, all students invited"),
+    "other":       ("Other",        "e.g. Short summary of what this document is about"),
+}
 NOT_FOUND = "I couldn't find this in the available published documents. Please check with the college office."
 
 DB_URL = os.getenv("DATABASE_URL", "sqlite:///./data/campusflow.db")  # PostgreSQL URL also works
@@ -36,6 +50,7 @@ class Document(Base):
     uploaded_by_name = Column(String); uploaded_by_role = Column(String); department = Column(String)
     uploaded_at = Column(DateTime, default=datetime.utcnow); status = Column(String, default="uploaded")
     error = Column(Text); page_count = Column(Integer)
+    category = Column(String); note = Column(String(NOTE_MAX))  # staff answers given at upload
 
 class Chunk(Base):
     __tablename__ = "document_chunks"
@@ -67,6 +82,10 @@ def boot():
     cols = [c["name"] for c in sa_inspect(eng).get_columns("chat_messages")]
     if "session_id" not in cols:
         with eng.begin() as c: c.execute(sa_text("ALTER TABLE chat_messages ADD COLUMN session_id INTEGER"))
+    doc_cols = [c["name"] for c in sa_inspect(eng).get_columns("documents")]
+    for col, ddl in (("category", "VARCHAR"), ("note", f"VARCHAR({NOTE_MAX})")):
+        if col not in doc_cols:
+            with eng.begin() as c: c.execute(sa_text(f"ALTER TABLE documents ADD COLUMN {col} {ddl}"))
     with Session_() as s:
         for (sid,) in s.query(Message.student_id).filter(Message.session_id.is_(None)).distinct().all():
             cs = ChatSession(student_id=sid, title="Earlier questions"); s.add(cs); s.flush()
@@ -112,7 +131,15 @@ def me(u: User = Depends(current), s: Session = Depends(db)):
             "indexed": s.query(Document).filter_by(status="ready").count()}
 
 dj = lambda d: {k: getattr(d, k) for k in ("id", "file_name", "file_type", "uploaded_by_name", "uploaded_by_role",
-                "department", "status", "error", "page_count")} | {"uploaded_at": d.uploaded_at.isoformat() + "Z"}
+                "department", "status", "error", "page_count", "category", "note")} | {"uploaded_at": d.uploaded_at.isoformat() + "Z"}
+
+def clean_meta(category, note):
+    """Validate the staff answers. Returns (category, note) or raises ValueError with a readable reason."""
+    category, note = (category or "").strip().lower(), re.sub(r"\s+", " ", note or "").strip()
+    if category not in CATEGORIES: raise ValueError("Choose what this document is about")
+    if not note: raise ValueError("Add a short note for students")
+    if len(note) > NOTE_MAX: raise ValueError(f"Note must be {NOTE_MAX} characters or fewer")
+    return category, note
 
 def process(doc_id: int):
     s = Session_(); d = s.get(Document, doc_id)
@@ -134,9 +161,15 @@ def process(doc_id: int):
         s.commit(); s.close()
 
 @app.post("/api/documents")
-async def upload(bg: BackgroundTasks, files: list[UploadFile] = File(...), u: User = Depends(staff), s: Session = Depends(db)):
+async def upload(bg: BackgroundTasks, files: list[UploadFile] = File(...), meta: str = Form("[]"),
+                 u: User = Depends(staff), s: Session = Depends(db)):
+    try: answers = json.loads(meta); assert isinstance(answers, list)
+    except Exception: raise HTTPException(400, "Invalid upload details")
     out = []
-    for f in files:
+    for i, f in enumerate(files):
+        a = answers[i] if i < len(answers) and isinstance(answers[i], dict) else {}
+        try: cat, note = clean_meta(a.get("category"), a.get("note"))
+        except ValueError as e: out.append({"file": f.filename, "error": str(e)}); continue
         ext = f.filename.rsplit(".", 1)[-1].lower() if "." in f.filename else ""
         if ext not in EXT: out.append({"file": f.filename, "error": "Unsupported file type"}); continue
         data = await f.read()
@@ -144,7 +177,8 @@ async def upload(bg: BackgroundTasks, files: list[UploadFile] = File(...), u: Us
         path = os.path.join(STORE, f"{uuid.uuid4().hex}.{ext}")
         with open(path, "wb") as fh: fh.write(data)
         d = Document(file_name=os.path.basename(f.filename), file_type=ext, storage_path=path, uploaded_by=u.id,
-                     uploaded_by_name=u.name, uploaded_by_role=u.role, department=u.department)
+                     uploaded_by_name=u.name, uploaded_by_role=u.role, department=u.department,
+                     category=cat, note=note)
         s.add(d); s.commit(); bg.add_task(process, d.id)
         log.info("upload: %s by %s", d.file_name, u.username); out.append(dj(d))
     return out
@@ -152,6 +186,27 @@ async def upload(bg: BackgroundTasks, files: list[UploadFile] = File(...), u: Us
 @app.get("/api/documents")
 def documents(u: User = Depends(staff), s: Session = Depends(db)):
     return [dj(d) for d in s.query(Document).order_by(Document.id.desc())]
+
+class Meta(BaseModel): category: str = ""; note: str = ""
+
+@app.patch("/api/documents/{doc_id}")
+def edit_meta(doc_id: int, b: Meta, u: User = Depends(staff), s: Session = Depends(db)):
+    d = s.get(Document, doc_id)
+    if not d: raise HTTPException(404, "Document not found")
+    try: d.category, d.note = clean_meta(b.category, b.note)
+    except ValueError as e: raise HTTPException(400, str(e))
+    s.commit(); return dj(d)
+
+@app.get("/api/categories")
+def categories(u: User = Depends(current)):
+    return [{"key": k, "label": v[0], "hint": v[1]} for k, v in CATEGORIES.items()]
+
+@app.get("/api/updates")
+def updates(u: User = Depends(current), s: Session = Depends(db)):
+    """What is available for students: ready documents with the category and short note staff gave at upload."""
+    rows = s.query(Document).filter(Document.status == "ready").order_by(Document.id.desc()).all()
+    return [{"id": d.id, "file_name": d.file_name, "category": d.category if d.category in CATEGORIES else "other",
+             "note": d.note or "", "uploaded_at": d.uploaded_at.isoformat() + "Z"} for d in rows]
 
 @app.post("/api/documents/{doc_id}/retry")
 def retry(doc_id: int, bg: BackgroundTasks, u: User = Depends(staff), s: Session = Depends(db)):
