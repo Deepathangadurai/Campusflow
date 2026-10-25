@@ -104,13 +104,18 @@ h3 {
     border-color: var(--acc)
 }
 
+.btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed
+}
+
 .btn.p {
     background: var(--acc);
     color: var(--acc-ink);
     border-color: var(--acc)
 }
 
-.btn.p:hover {
+.btn.p:hover:not(:disabled) {
     filter: brightness(1.06)
 }
 
@@ -347,13 +352,37 @@ h3 {
     display: grid;
     place-items: center;
     font-weight: 700;
-    color: var(--acc)
+    color: var(--acc);
+    flex-shrink: 0
 }
 
 .who button {
     margin-left: auto;
     color: var(--mute);
     font-size: 12px
+}
+
+/* Sign out button (student sidebar) */
+.sign-out-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-left: auto;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--mute);
+    background: transparent;
+    border: 1px solid var(--line);
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+
+.sign-out-btn:hover {
+    color: var(--bad);
+    border-color: var(--bad);
+    background: var(--bad-soft);
 }
 
 .main {
@@ -444,7 +473,7 @@ h3 {
 table {
     width: 100%;
     border-collapse: collapse;
-    min-width: 640px
+    min-width: 760px
 }
 
 th {
@@ -497,6 +526,14 @@ td small {
     color: var(--acc);
     font-weight: 700;
     font-size: 13px
+}
+
+.bad-lnk {
+    color: var(--bad) !important;
+}
+
+.bad-lnk:hover {
+    text-decoration: underline;
 }
 
 /* chat */
@@ -722,6 +759,59 @@ td small {
     padding: 8px 0
 }
 
+.voice-btn {
+    position: relative;
+    display: grid;
+    flex: 0 0 40px;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    color: var(--mute);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    transition: color .16s ease, background .16s ease, border-color .16s ease;
+}
+
+.voice-btn svg {
+    width: 20px;
+    height: 20px;
+}
+
+.voice-btn:hover:not(:disabled) {
+    color: var(--acc);
+    background: var(--acc-soft);
+    border-color: #eed9b7;
+}
+
+.voice-btn:focus-visible {
+    outline: 3px solid rgba(201, 134, 26, .28);
+    outline-offset: 2px;
+}
+
+.voice-btn.listening {
+    color: #fff;
+    background: var(--bad);
+    border-color: var(--bad);
+    animation: voicePulse 1.4s ease-out infinite;
+}
+
+.voice-btn:disabled {
+    color: #bdb5ab;
+    cursor: not-allowed;
+}
+
+@keyframes voicePulse {
+    50% {
+        box-shadow: 0 0 0 5px rgba(166, 61, 61, .13);
+    }
+}
+
+.voice-note {
+    color: var(--bad);
+    font-weight: 600;
+}
+
 .note {
     text-align: center;
     color: var(--mute);
@@ -799,21 +889,31 @@ td small {
     }
 }
 
+/* ===== Login & Registration ===== */
 .login {
-    max-width: 400px;
+    max-width: 420px;
     margin: 0 auto;
-    padding: 12vh 24px;
+    padding: 10vh 24px;
     display: flex;
     flex-direction: column;
-    gap: 14px
+    gap: 10px
 }
 
 .login h2 {
-    font-size: 30px
+    font-size: 30px;
+    margin-top: 4px
 }
 
 .login p {
-    color: var(--mute)
+    color: var(--mute);
+    margin-bottom: 6px
+}
+
+.label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink);
+    margin-top: 4px
 }
 
 .field {
@@ -833,17 +933,98 @@ td small {
 
 .err {
     color: var(--bad);
-    font-size: 13.5px
+    font-size: 13.5px;
+    padding: 6px 0
 }
 
 .link {
     color: var(--mute);
     font-size: 13px;
-    text-align: left
+    text-align: left;
+    margin-top: 4px
 }
 
-td .lnk {
-    margin-right: 12px
+.link:hover {
+    color: var(--ink)
+}
+
+.switch-text {
+    text-align: center;
+    font-size: 14px;
+    color: var(--mute);
+    margin-top: 6px
+}
+
+.link-btn {
+    color: var(--acc);
+    font-weight: 700;
+    font-size: 14px;
+    text-decoration: none;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0
+}
+
+.link-btn:hover {
+    text-decoration: underline
+}
+
+.register {
+    max-width: 460px
+}
+
+.doc-actions {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.icon-action {
+    display: inline-grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    color: #655b50;
+    background: #fff;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    transition: color .16s ease, background .16s ease, border-color .16s ease, transform .16s ease;
+}
+
+.icon-action svg {
+    width: 17px;
+    height: 17px;
+}
+
+.icon-action:hover:not(:disabled) {
+    color: var(--acc);
+    background: var(--acc-soft);
+    border-color: #eed9b7;
+    transform: translateY(-1px);
+}
+
+.icon-action.danger {
+    color: var(--bad);
+}
+
+.icon-action.danger:hover:not(:disabled) {
+    color: #8b2424;
+    background: var(--bad-soft);
+    border-color: #eccaca;
+}
+
+.icon-action:focus-visible {
+    outline: 3px solid rgba(201, 134, 26, .28);
+    outline-offset: 2px;
+}
+
+.icon-action:disabled {
+    color: #bdb5ab;
+    background: transparent;
+    cursor: not-allowed;
+    opacity: .65;
 }
 
 /* ===== Light theme lock + alignment fixes ===== */
@@ -900,10 +1081,6 @@ th:last-child,
 td:last-child {
     text-align: right;
     white-space: nowrap
-}
-
-td .lnk:last-child {
-    margin-right: 0
 }
 
 .srow {
@@ -970,7 +1147,7 @@ td .lnk:last-child {
     border-color: #e4cdb6
 }
 
-.btn.p:hover {
+.btn.p:hover:not(:disabled) {
     background: #b8400a;
     border-color: #b8400a;
     filter: none
@@ -1172,20 +1349,61 @@ td:nth-child(3) {
 
 /* Big CampusFlow in staff header */
 .staff-header .logo {
-    font-size: 26px;
+    font-size: 22px;
     font-weight: 700;
-    gap: 12px;
+    gap: 10px;
 }
 
 .staff-header .logo i {
-    width: 38px;
-    height: 38px;
-    border-radius: 11px;
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
 }
 
 .staff-header .logo svg {
-    width: 22px;
-    height: 22px;
+    width: 20px;
+    height: 20px;
+}
+
+/* ===== Staff Navigation Tabs ===== */
+.staff-tabs {
+    display: flex;
+    gap: 4px;
+    background: var(--bg);
+    padding: 4px;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+}
+
+.tab-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 18px;
+    border-radius: 9px;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--mute);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+
+.tab-btn:hover {
+    color: var(--ink);
+    background: rgba(255, 255, 255, 0.5);
+}
+
+.tab-btn.active {
+    color: var(--acc-text);
+    background: var(--surface);
+    box-shadow: 0 1px 3px rgba(120, 60, 10, 0.1);
+}
+
+.tab-btn svg {
+    flex-shrink: 0;
 }
 
 .staff-user {
@@ -1231,20 +1449,19 @@ td:nth-child(3) {
     margin-left: 6px;
     padding: 8px 15px;
     border-radius: 10px;
-    border: 1px solid var(--acc);
-    background: var(--acc);
-    color: var(--acc-ink);
-    font-size: 13.5px;
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--mute);
+    font-size: 13px;
     font-weight: 600;
     transition: all .15s ease;
     cursor: pointer;
-    box-shadow: 0 1px 2px rgba(120, 60, 10, .12);
 }
 
 .staff-user .btn-exit:hover {
-    background: #b8400a;
-    border-color: #b8400a;
-    box-shadow: 0 2px 6px rgba(120, 60, 10, .18);
+    color: var(--bad);
+    border-color: var(--bad);
+    background: var(--bad-soft);
 }
 
 .staff-user .btn-exit svg {
@@ -1272,10 +1489,271 @@ td:nth-child(3) {
     margin: 0;
 }
 
+/* ===== Student Management ===== */
+.students-section {
+    animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.add-student-form {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 8px;
+    animation: fadeIn 0.2s ease;
+}
+
+.bulk-student-import {
+    display: grid;
+    grid-template-columns: minmax(0, .95fr) minmax(0, 1.05fr);
+    align-items: center;
+    gap: 20px 32px;
+    background: linear-gradient(120deg, #fffdf9 0%, var(--surface) 60%);
+    border: 1px solid #ecdcc9;
+    border-radius: 18px;
+    padding: 24px 28px;
+    margin: 18px 0 8px;
+    box-shadow: 0 8px 24px rgba(95, 61, 28, .045);
+}
+
+.bulk-import-copy {
+    display: flex;
+    align-items: flex-start;
+    gap: 15px;
+    min-width: 0;
+}
+
+.bulk-import-icon {
+    display: grid;
+    place-items: center;
+    flex: 0 0 44px;
+    width: 44px;
+    height: 44px;
+    color: var(--acc);
+    background: var(--acc-soft);
+    border-radius: 13px;
+}
+
+.bulk-import-icon svg {
+    width: 22px;
+    height: 22px;
+}
+
+.bulk-import-title {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 9px;
+    font-size: 16px;
+}
+
+.bulk-import-badge {
+    color: var(--warn);
+    background: var(--warn-soft);
+    border-radius: 99px;
+    padding: 3px 9px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .02em;
+}
+
+.bulk-import-copy p {
+    color: var(--mute);
+    font-size: 13px;
+    line-height: 1.65;
+    margin: 6px 0 4px;
+}
+
+.bulk-import-copy small {
+    display: block;
+    color: #877d70;
+    font-size: 11px;
+}
+
+.bulk-import-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+}
+
+.bulk-file-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    clip-path: inset(50%);
+    border: 0;
+}
+
+.bulk-file-picker {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-width: 0;
+    min-height: 48px;
+    padding: 6px 7px 6px 14px;
+    color: var(--mute);
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    cursor: pointer;
+    transition: border-color .16s, box-shadow .16s, background .16s;
+}
+
+.bulk-file-picker:hover {
+    border-color: var(--acc);
+    background: #fffdfa;
+}
+
+.bulk-file-input:focus-visible + .bulk-file-picker {
+    outline: 3px solid rgba(201, 134, 26, .24);
+    outline-offset: 2px;
+    border-color: var(--acc);
+}
+
+.bulk-file-name {
+    overflow: hidden;
+    font-size: 13px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.bulk-file-browse {
+    flex: 0 0 auto;
+    padding: 7px 11px;
+    color: var(--ink);
+    background: var(--bg);
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.bulk-upload-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-width: 146px;
+    min-height: 48px;
+    padding-inline: 16px;
+    border-radius: 12px;
+    white-space: nowrap;
+    box-shadow: 0 5px 12px rgba(201, 134, 26, .18);
+}
+
+.bulk-upload-button:disabled {
+    box-shadow: none;
+    filter: saturate(.55);
+}
+
+.bulk-spinner {
+    width: 15px;
+    height: 15px;
+    border: 2px solid rgba(255, 255, 255, .45);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: bulkSpin .7s linear infinite;
+}
+
+@keyframes bulkSpin {
+    to { transform: rotate(360deg); }
+}
+
+.bulk-import-feedback {
+    grid-column: 1 / -1;
+    margin: 0;
+}
+
+.bulk-import-result {
+    padding: 12px 15px;
+    color: var(--mute);
+    font-size: 14px;
+    background: var(--ok-soft);
+    border: 1px solid #cce5d4;
+    border-radius: 12px;
+}
+
+.bulk-import-result ul {
+    margin: 8px 0 0;
+    padding-left: 20px;
+}
+
+@media(max-width:900px) {
+    .bulk-student-import {
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 14px;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.form-group .label {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--mute);
+}
+
+.form-group .field {
+    font-size: 14px;
+}
+
+.add-student-form .btn {
+    margin-top: 4px;
+}
+
+.add-student-form .err {
+    margin-bottom: 6px;
+}
+
 @media(max-width:640px) {
+    .bulk-student-import {
+        padding: 18px;
+    }
+
+    .bulk-import-controls {
+        grid-template-columns: 1fr;
+        gap: 10px;
+    }
+
+    .form-row {
+        grid-template-columns: 1fr;
+    }
+
     .staff-user .nm small {
         display: none;
     }
+<<<<<<< Updated upstream
 }
 /* ---- Upload questions (staff) ---- */
 .modal-bg {
@@ -1455,3 +1933,21 @@ td:nth-child(3) {
     color: var(--mute);
     word-break: break-all
 }
+=======
+
+    .staff-tabs {
+        display: none;
+    }
+}
+
+@media(max-width:920px) {
+    .staff-header-inner {
+        flex-wrap: wrap;
+    }
+
+    .staff-tabs {
+        order: 3;
+        width: 100%;
+    }
+}
+>>>>>>> Stashed changes

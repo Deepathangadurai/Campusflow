@@ -1,4 +1,10 @@
+<<<<<<< Updated upstream
 import os, re, json, uuid, logging, hashlib, jwt
+=======
+import os, re, uuid, logging, hashlib, jwt, threading
+from io import BytesIO
+from zipfile import BadZipFile
+>>>>>>> Stashed changes
 from typing import Optional
 from dotenv import load_dotenv
 load_dotenv()
@@ -6,9 +12,12 @@ from datetime import datetime, timedelta
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks, Header
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from openpyxl import load_workbook
+from openpyxl.utils.exceptions import InvalidFileException
 from pydantic import BaseModel
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey, JSON, LargeBinary
 from sqlalchemy import inspect as sa_inspect, text as sa_text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
 from . import rag
 
@@ -18,6 +27,7 @@ SECRET = os.environ["JWT_SECRET"]
 STORE = os.getenv("STORAGE_DIR", "./data/files"); os.makedirs(STORE, exist_ok=True)
 PUBLIC = os.getenv("PUBLIC_URL", "http://localhost:5173")
 EXT, MAX_BYTES = {"pdf", "jpg", "jpeg", "png", "docx", "txt"}, 25 << 20
+<<<<<<< Updated upstream
 NOTE_MAX = 100  # short note shown to students under each document
 # Questions staff answer at upload time. key -> (label, placeholder example for the note)
 CATEGORIES = {
@@ -32,6 +42,9 @@ CATEGORIES = {
     "event":       ("Event",        "e.g. Annual day on 15 Dec, all students invited"),
     "other":       ("Other",        "e.g. Short summary of what this document is about"),
 }
+=======
+MAX_STUDENT_IMPORT_BYTES, MAX_STUDENT_IMPORT_ROWS = 5 << 20, 1000
+>>>>>>> Stashed changes
 NOT_FOUND = "I couldn't find this in the available published documents. Please check with the college office."
 
 DB_URL = os.getenv("DATABASE_URL", "sqlite:///./data/campusflow.db")  # PostgreSQL URL also works
@@ -40,7 +53,7 @@ eng = create_engine(DB_URL, connect_args={"check_same_thread": False, "timeout":
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True); name = Column(String); username = Column(String, unique=True)
-    pw_hash = Column(String); role = Column(String); department = Column(String)
+    email = Column(String, unique=True); pw_hash = Column(String); role = Column(String); department = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Document(Base):
@@ -82,26 +95,43 @@ def boot():
     cols = [c["name"] for c in sa_inspect(eng).get_columns("chat_messages")]
     if "session_id" not in cols:
         with eng.begin() as c: c.execute(sa_text("ALTER TABLE chat_messages ADD COLUMN session_id INTEGER"))
+<<<<<<< Updated upstream
     doc_cols = [c["name"] for c in sa_inspect(eng).get_columns("documents")]
     for col, ddl in (("category", "VARCHAR"), ("note", f"VARCHAR({NOTE_MAX})")):
         if col not in doc_cols:
             with eng.begin() as c: c.execute(sa_text(f"ALTER TABLE documents ADD COLUMN {col} {ddl}"))
+=======
+    # upgrade: add email column if missing
+    user_cols = [c["name"] for c in sa_inspect(eng).get_columns("users")]
+    if "email" not in user_cols:
+        with eng.begin() as c: c.execute(sa_text("ALTER TABLE users ADD COLUMN email TEXT"))
+>>>>>>> Stashed changes
     with Session_() as s:
         for (sid,) in s.query(Message.student_id).filter(Message.session_id.is_(None)).distinct().all():
             cs = ChatSession(student_id=sid, title="Earlier questions"); s.add(cs); s.flush()
             s.query(Message).filter(Message.student_id == sid, Message.session_id.is_(None)).update({"session_id": cs.id})
         s.commit()
-    with Session_() as s:
-        for n, u, pw, r, dep in [("Prof. Rao", "staff", os.getenv("STAFF_PASSWORD", "staff123"), "staff", "Examinations"),
-                                 ("Ananya K.", "student", os.getenv("STUDENT_PASSWORD", "student123"), "student", "CSE")]:
-            if not s.query(User).filter_by(username=u).first():
-                s.add(User(name=n, username=u, pw_hash=hp(pw), role=r, department=dep))
-        s.commit()
+    threading.Thread(target=warm_embeddings, name="embedding-warmup", daemon=True).start()
+    threading.Thread(target=warm_ollama, name="ollama-warmup", daemon=True).start()
 
 def db():
     s = Session_()
     try: yield s
     finally: s.close()
+
+def warm_embeddings():
+    try:
+        rag.emb(["CampusFlow startup warm-up"])
+        log.info("embedding model warm-up complete")
+    except Exception:
+        log.exception("embedding model warm-up failed")
+
+def warm_ollama():
+    try:
+        rag.warm_llm()
+        log.info("Ollama model warm-up complete")
+    except Exception:
+        log.exception("Ollama model warm-up failed")
 
 def current(authorization: str = Header(None), s: Session = Depends(db)):
     try: uid = int(jwt.decode((authorization or "").removeprefix("Bearer "), SECRET, algorithms=["HS256"])["sub"])
@@ -114,22 +144,190 @@ def staff(u: User = Depends(current)):
     if u.role != "staff": raise HTTPException(403, "Staff access only")
     return u
 
-class Login(BaseModel): username: str; password: str; role: str
+# ── Pydantic models ──────────────────────────────────────────────────────────
+class Login(BaseModel): email: str; password: str; role: str
+class StaffRegister(BaseModel): name: str; department: str; email: str; password: str
+class StudentCreate(BaseModel): name: str; department: str; email: str; password: str
 class Ask(BaseModel): question: str; session_id: Optional[int] = None
+
+# ── Auth endpoints ───────────────────────────────────────────────────────────
+@app.post("/api/register")
+def register_staff(b: StaffRegister, s: Session = Depends(db)):
+    """Staff self-registration."""
+    if not b.name.strip() or not b.email.strip() or not b.password.strip() or not b.department.strip():
+        raise HTTPException(400, "All fields are required")
+    if len(b.password) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters")
+    if s.query(User).filter_by(email=b.email.lower().strip()).first():
+        raise HTTPException(409, "An account with this email already exists")
+    username = b.email.lower().strip().split("@")[0]
+    # ensure unique username
+    base = username
+    n = 1
+    while s.query(User).filter_by(username=username).first():
+        username = f"{base}{n}"; n += 1
+    u = User(name=b.name.strip(), username=username, email=b.email.lower().strip(),
+             pw_hash=hp(b.password), role="staff", department=b.department.strip())
+    s.add(u); s.commit()
+    log.info("staff registered: %s (%s)", u.email, u.department)
+    token = jwt.encode({"sub": str(u.id), "exp": datetime.utcnow() + timedelta(hours=8)}, SECRET)
+    return {"token": token}
 
 @app.post("/api/login")
 def login(b: Login, s: Session = Depends(db)):
-    u = s.query(User).filter_by(username=b.username).first()
+    u = s.query(User).filter_by(email=b.email.lower().strip()).first()
     if not u or u.pw_hash != hp(b.password) or u.role != b.role:
-        log.warning("failed login: %s", b.username); raise HTTPException(401, "Invalid username, password or role")
-    log.info("login: %s (%s)", u.username, u.role)
+        log.warning("failed login: %s", b.email); raise HTTPException(401, "Invalid email, password or role")
+    log.info("login: %s (%s)", u.email, u.role)
     return {"token": jwt.encode({"sub": str(u.id), "exp": datetime.utcnow() + timedelta(hours=8)}, SECRET)}
 
 @app.get("/api/me")
 def me(u: User = Depends(current), s: Session = Depends(db)):
-    return {"name": u.name, "role": u.role, "department": u.department,
+    return {"name": u.name, "role": u.role, "department": u.department, "email": u.email or "",
             "indexed": s.query(Document).filter_by(status="ready").count()}
 
+# ── Student management (staff only) ─────────────────────────────────────────
+@app.post("/api/students")
+def create_student(b: StudentCreate, u: User = Depends(staff), s: Session = Depends(db)):
+    """Staff creates a student account."""
+    if not b.name.strip() or not b.email.strip() or not b.password.strip() or not b.department.strip():
+        raise HTTPException(400, "All fields are required")
+    if len(b.password) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters")
+    if s.query(User).filter_by(email=b.email.lower().strip()).first():
+        raise HTTPException(409, "An account with this email already exists")
+    username = b.email.lower().strip().split("@")[0]
+    base = username
+    n = 1
+    while s.query(User).filter_by(username=username).first():
+        username = f"{base}{n}"; n += 1
+    st = User(name=b.name.strip(), username=username, email=b.email.lower().strip(),
+              pw_hash=hp(b.password), role="student", department=b.department.strip())
+    s.add(st); s.commit()
+    log.info("student created by %s: %s (%s)", u.email, st.email, st.department)
+    return {"id": st.id, "name": st.name, "email": st.email, "department": st.department,
+            "created_at": st.created_at.isoformat() + "Z"}
+
+@app.post("/api/students/import")
+async def import_students(file: UploadFile = File(...), u: User = Depends(staff), s: Session = Depends(db)):
+    """Create student accounts from an Excel workbook; invalid rows are reported and skipped."""
+    if not file.filename or not file.filename.lower().endswith(".xlsx"):
+        raise HTTPException(400, "Upload an Excel .xlsx file")
+    content = await file.read(MAX_STUDENT_IMPORT_BYTES + 1)
+    if len(content) > MAX_STUDENT_IMPORT_BYTES:
+        raise HTTPException(413, "Excel file must be 5 MB or smaller")
+    try:
+        workbook = load_workbook(BytesIO(content), read_only=True, data_only=True)
+    except (BadZipFile, InvalidFileException, OSError, ValueError) as e:
+        raise HTTPException(400, "Could not read the Excel file. Upload a valid .xlsx workbook.") from e
+
+    try:
+        sheet = workbook.active
+        if sheet.max_row is None or sheet.max_row < 2:
+            raise HTTPException(400, "The Excel sheet must include a header row and at least one student row")
+        if sheet.max_row - 1 > MAX_STUDENT_IMPORT_ROWS:
+            raise HTTPException(400, f"Excel file can contain at most {MAX_STUDENT_IMPORT_ROWS} student rows")
+
+        headers = [
+            re.sub(r"\s+", " ", str(cell.value or "").strip().lower())
+            for cell in next(sheet.iter_rows(min_row=1, max_row=1))
+        ]
+        columns = {}
+        for key, aliases in {
+            "name": {"name"},
+            "department": {"department"},
+            "email": {"mail id", "email", "mail"},
+            "password": {"password"},
+        }.items():
+            matches = [i for i, header in enumerate(headers) if header in aliases]
+            if not matches:
+                raise HTTPException(400, f"Excel file is missing a '{key}' column")
+            if len(matches) > 1:
+                raise HTTPException(400, f"Excel file has multiple columns for '{key}'")
+            columns[key] = matches[0]
+
+        def cell_text(value):
+            if value is None:
+                return ""
+            if isinstance(value, float) and value.is_integer():
+                return str(int(value))
+            return str(value).strip()
+
+        existing_emails = {
+            email.lower() for (email,) in s.query(User.email).filter(User.email.isnot(None)).all()
+        }
+        used_usernames = {username for (username,) in s.query(User.username).all() if username}
+        imported_emails = set()
+        errors, created_count = [], 0
+
+        for row_number, values in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
+            fields = {key: cell_text(values[index] if index < len(values) else None)
+                      for key, index in columns.items()}
+            if not any(fields.values()):
+                continue
+
+            issue = None
+            if any(not fields[key] for key in columns):
+                issue = "Name, department, mail id, and password are required"
+            elif not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", fields["email"]):
+                issue = "Enter a valid email address"
+            elif len(fields["password"]) < 6:
+                issue = "Password must be at least 6 characters"
+
+            email = fields["email"].lower()
+            if issue is None and (email in existing_emails or email in imported_emails):
+                issue = "An account with this email already exists"
+
+            if issue:
+                errors.append({"row": row_number, "message": issue})
+                continue
+
+            username = email.split("@", 1)[0]
+            base_username = username
+            suffix = 1
+            while username in used_usernames:
+                username = f"{base_username}{suffix}"
+                suffix += 1
+            used_usernames.add(username)
+            imported_emails.add(email)
+            s.add(User(
+                name=fields["name"],
+                username=username,
+                email=email,
+                pw_hash=hp(fields["password"]),
+                role="student",
+                department=fields["department"],
+            ))
+            created_count += 1
+
+        try:
+            s.commit()
+        except IntegrityError as e:
+            s.rollback()
+            raise HTTPException(409, "An account with one of these email addresses already exists. No accounts were imported.") from e
+        log.info("bulk student import by %s: created=%d skipped=%d", u.email, created_count, len(errors))
+        return {"created": created_count, "skipped": len(errors), "errors": errors}
+    finally:
+        workbook.close()
+
+@app.get("/api/students")
+def list_students(u: User = Depends(staff), s: Session = Depends(db)):
+    rows = s.query(User).filter_by(role="student").order_by(User.id.desc()).all()
+    return [{"id": r.id, "name": r.name, "email": r.email or "", "department": r.department,
+             "created_at": r.created_at.isoformat() + "Z" if r.created_at else ""} for r in rows]
+
+@app.delete("/api/students/{student_id}")
+def delete_student(student_id: int, u: User = Depends(staff), s: Session = Depends(db)):
+    st = s.get(User, student_id)
+    if not st or st.role != "student": raise HTTPException(404, "Student not found")
+    # Clean up student's chat history
+    s.query(Message).filter_by(student_id=student_id).delete()
+    s.query(ChatSession).filter_by(student_id=student_id).delete()
+    s.delete(st); s.commit()
+    log.info("student deleted by %s: id=%d", u.email, student_id)
+    return {"ok": True}
+
+# ── Documents ────────────────────────────────────────────────────────────────
 dj = lambda d: {k: getattr(d, k) for k in ("id", "file_name", "file_type", "uploaded_by_name", "uploaded_by_role",
                 "department", "status", "error", "page_count", "category", "note")} | {"uploaded_at": d.uploaded_at.isoformat() + "Z"}
 
@@ -180,7 +378,7 @@ async def upload(bg: BackgroundTasks, files: list[UploadFile] = File(...), meta:
                      uploaded_by_name=u.name, uploaded_by_role=u.role, department=u.department,
                      category=cat, note=note)
         s.add(d); s.commit(); bg.add_task(process, d.id)
-        log.info("upload: %s by %s", d.file_name, u.username); out.append(dj(d))
+        log.info("upload: %s by %s", d.file_name, u.email); out.append(dj(d))
     return out
 
 @app.get("/api/documents")
@@ -214,6 +412,26 @@ def retry(doc_id: int, bg: BackgroundTasks, u: User = Depends(staff), s: Session
     if not d or d.status in ("uploaded", "processing"): raise HTTPException(400, "Document is already being processed")
     bg.add_task(process, doc_id); return {"ok": True}
 
+@app.delete("/api/documents/{doc_id}")
+def delete_document(doc_id: int, u: User = Depends(staff), s: Session = Depends(db)):
+    d = s.get(Document, doc_id)
+    if not d:
+        raise HTTPException(404, "Document not found")
+    if d.status in ("uploaded", "processing"):
+        raise HTTPException(409, "Wait for document processing to finish before deleting it")
+    path = d.storage_path
+    s.query(Chunk).filter_by(document_id=doc_id).delete()
+    s.delete(d)
+    s.commit()
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+    except OSError as e:
+        log.exception("document record %s deleted but its file could not be removed", doc_id)
+        raise HTTPException(500, "Document was removed from the list, but its stored file could not be deleted") from e
+    log.info("document deleted by %s: %s", u.email, doc_id)
+    return {"ok": True}
+
 @app.get("/api/documents/{doc_id}/file")
 def file(doc_id: int, download: bool = False, u: User = Depends(current), s: Session = Depends(db)):
     d = s.get(Document, doc_id)
@@ -222,6 +440,7 @@ def file(doc_id: int, download: bool = False, u: User = Depends(current), s: Ses
     return FileResponse(d.storage_path, filename=d.file_name,
                         content_disposition_type="attachment" if download else "inline")
 
+# ── Chat ─────────────────────────────────────────────────────────────────────
 @app.post("/api/chat")
 def chat(b: Ask, u: User = Depends(current), s: Session = Depends(db)):
     q = b.question.strip()
@@ -235,19 +454,28 @@ def chat(b: Ask, u: User = Depends(current), s: Session = Depends(db)):
     rows = (s.query(Chunk.id, Chunk.text, Chunk.page_number, Chunk.embedding, Document.id.label("did"), Document.file_name)
             .join(Document, Document.id == Chunk.document_id).filter(Document.status == "ready").all())
     by = {r.id: r for r in rows}
-    hits = rag.search(q, [(r.id, r.text, r.embedding, r.did) for r in rows], k=3) if rows else []
+    corpus = [(r.id, r.text, r.embedding, r.did) for r in rows]
+    query = rag.correct_query(q, [r.text for r in rows]) if rows else q
+    if query != q:
+        log.info("normalized question for retrieval: %r -> %r", q, query)
+    hits = rag.search(query, corpus, k=3) if rows else []
     conf = max((h[2] for h in hits), default=0.0)
     log.info("q=%r ready_chunks=%d conf=%.2f thresh=%.2f hits=%s", q, len(rows), conf, rag.THRESH, [(by[c].file_name, by[c].page_number, round(sc, 2)) for c, _, sc in hits])
     answer, meta = NOT_FOUND, {"grounded": False, "confidence": round(conf, 2), "sources": [], "threshold": rag.THRESH,
                     "reason": "low_confidence" if rows else "no_documents"}
     if hits and conf >= rag.THRESH:
-        ctx = "\n\n".join(f"[{by[c].file_name}, page {by[c].page_number}] {by[c].text}" for c, _, _ in hits[:2])
-        try: out = rag.llm(q, ctx)
-        except Exception:
-            log.exception("LLM failure"); raise HTTPException(503, "The language model is unavailable. Please try again shortly.")
+        relevant = [hit for hit in hits if hit[2] >= conf - 0.12][:2] or hits[:1]
+        ctx = "\n\n".join(
+            f"[{by[c].file_name}, page {by[c].page_number}] {rag.excerpt(by[c].text, query)}"
+            for c, _, _ in relevant
+        )
+        try: out = rag.llm(query, ctx)
+        except Exception as e:
+            log.exception("Ollama generation failed")
+            raise HTTPException(503, "The language model is unavailable. Check that Ollama is running with the configured model.") from e
         log.info("LLM replied: %r", out[:150])
         meta["reason"] = "not_in_context"
-        if "NOT_FOUND" not in out:
+        if not re.fullmatch(r"NOT[\s_-]*FOUND[.!]?", out.strip(), flags=re.IGNORECASE):
             # Filter out common college/academic boilerplate words so they don't cause false grounding matches
             GENERIC_WORDS = {
                 "department", "engineering", "technology", "dindigul", "institution", "academic",

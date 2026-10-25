@@ -14,7 +14,6 @@ No Docker, no vector-database server.
    pip install -r requirements.txt
    copy ..\.env.example ..\.env    (macOS/Linux: cp ../.env.example ../.env)   then edit JWT_SECRET
    ```
-   `HF_TOKEN` is optional; add your Hugging Face access token to that field in `.env` to raise download rate limits.
 4. Frontend: `cd frontend && npm install`
 
 ## Run (two terminals)
@@ -22,6 +21,9 @@ No Docker, no vector-database server.
 - Frontend (inside `frontend`): `npm run dev`
 - Open http://localhost:5173  ·  Staff: `staff` / `staff123`  ·  Student: `student` / `student123`
 
-The first upload downloads the MiniLM embedding model (internet needed once). Data lives in `backend/data/`.
+## Bulk student accounts
+From the staff dashboard, open **Students** and upload an `.xlsx` workbook. The first sheet must have a header row named `Name`, `Department`, `Mail ID` (or `Email`), and `Password`. Each valid row creates one student account; duplicate email addresses and invalid rows are skipped and reported with their spreadsheet row numbers. Passwords must be at least 6 characters and are stored as hashes. Each workbook is limited to 1,000 student rows and 5 MB.
+
+Answer generation uses the local Ollama model. The first upload downloads the MiniLM embedding model (internet needed once). Data lives in `backend/data/`.
 `CONF_THRESHOLD` is the confidence gate (spec suggests 0.72; defaults to 0.35 - raise it until off-topic questions hit the fallback).
 API docs: http://localhost:8000/docs
