@@ -1277,3 +1277,181 @@ td:nth-child(3) {
         display: none;
     }
 }
+/* ---- Upload questions (staff) ---- */
+.modal-bg {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: rgba(31, 27, 22, .45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px
+}
+
+.modal {
+    width: 100%;
+    max-width: 620px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border-radius: 18px;
+    padding: 24px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, .25)
+}
+
+.modal h3 {
+    font-family: var(--serif);
+    font-size: 22px
+}
+
+.modal-sub {
+    color: var(--mute);
+    font-size: 13.5px;
+    margin: 4px 0 14px
+}
+
+.modal-body {
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-right: 2px
+}
+
+.qcard {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 14px;
+    background: var(--bg)
+}
+
+.qfile {
+    font-weight: 700;
+    font-size: 14px;
+    word-break: break-all;
+    margin-bottom: 10px
+}
+
+.qlabel {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--mute);
+    margin: 10px 0 6px
+}
+
+.qopts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px
+}
+
+.qopt {
+    padding: 7px 14px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    border-radius: 99px;
+    font-size: 13.5px;
+    font-weight: 500;
+    transition: .15s
+}
+
+.qopt:hover {
+    border-color: var(--acc)
+}
+
+.qopt.on {
+    background: var(--acc);
+    border-color: var(--acc);
+    color: var(--acc-ink);
+    font-weight: 700
+}
+
+.qcount {
+    font-weight: 600
+}
+
+.qcount.full {
+    color: var(--bad)
+}
+
+.modal-acts {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 16px
+}
+
+.modal-acts .btn:disabled {
+    opacity: .45;
+    cursor: not-allowed
+}
+
+.dnote {
+    color: var(--ink);
+    margin-top: 2px
+}
+
+/* ---- "What is available" options (student) ---- */
+.sugg-title {
+    margin-top: 22px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--mute)
+}
+
+.sugg .cnt {
+    margin-left: 8px;
+    min-width: 20px;
+    padding: 0 6px;
+    border-radius: 99px;
+    background: var(--acc-soft);
+    color: var(--warn);
+    font-size: 12px;
+    font-weight: 700
+}
+
+.sugg.compact {
+    max-width: 760px;
+    margin: 0 auto 10px;
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    overflow-x: auto
+}
+
+.sugg.compact button {
+    white-space: nowrap;
+    padding: 6px 12px
+}
+
+.upd {
+    padding: 12px 0;
+    border-top: 1px solid var(--line)
+}
+
+.upd:first-of-type {
+    border-top: 0
+}
+
+.upd p {
+    font-weight: 600
+}
+
+.upd-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 4px
+}
+
+.upd-row small {
+    color: var(--mute);
+    word-break: break-all
+}
