@@ -5,9 +5,14 @@ type User = { name: string; role: Role; department?: string; indexed: number }
 type Doc = {
   id: number; file_name: string; file_type: string; uploaded_by_name: string; uploaded_by_role: string
   department: string; uploaded_at: string; status: 'uploaded' | 'processing' | 'ready' | 'failed'; error?: string; page_count?: number
+  category?: string | null; note?: string | null
 }
+type Cat = { key: string; label: string; hint: string }
+type Upd = { id: number; file_name: string; category: string; note: string; uploaded_at: string }
+type Answer = { category: string; note: string }
+const NOTE_MAX = 100
 type Src = { document_id: number; file_name: string; page: number }
-type Msg = { role: 'user' | 'assistant'; text: string; grounded?: boolean; confidence?: number; sources?: Src[]; share_text?: string; threshold?: number; reason?: string }
+type Msg = { role: 'user' | 'assistant'; text: string; grounded?: boolean; confidence?: number; sources?: Src[]; share_text?: string; threshold?: number; reason?: string; updates?: { label: string; items: Upd[] } }
 
 const API = import.meta.env.VITE_API ?? '/api'
 let tok = sessionStorage.getItem('t') ?? ''
@@ -109,20 +114,71 @@ function Side({ user, out, children }: { user: User; out: () => void; children?:
 const LAB = { uploaded: ['warn', 'Queued'], processing: ['warn', 'Processing'], ready: ['ok', 'Ready'], failed: ['bad', 'Failed'] } as const
 const when = (s: string) => new Date(s).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 
+// Questions staff answer for a document: what is it about, plus a short note (max 100 chars) students will see.
+function MetaDialog({ title, action, items, cats, onCancel, onSubmit }: {
+  title: string; action: string; items: { name: string; category?: string | null; note?: string | null }[]
+  cats: Cat[]; onCancel: () => void; onSubmit: (a: Answer[]) => void
+}) {
+  const [ans, setAns] = useState<Answer[]>(items.map(i => ({ category: i.category ?? '', note: i.note ?? '' })))
+  const set = (i: number, p: Partial<Answer>) => setAns(a => a.map((x, j) => j === i ? { ...x, ...p } : x))
+  const ok = ans.every(a => a.category && a.note.trim())
+  return (
+    <div className="modal-bg" onClick={onCancel}>
+      <div className="modal" role="dialog" aria-modal="true" onClick={e => e.stopPropagation()}>
+        <h3>{title}</h3>
+        <p className="modal-sub">Students see these options in their chatbot, so they know what is available.</p>
+        <div className="modal-body">
+          {items.map((it, i) => {
+            const hint = cats.find(c => c.key === ans[i].category)?.hint ?? 'Pick a topic above, then write one line for students'
+            return (
+              <div key={i} className="qcard">
+                <div className="qfile">{it.name}</div>
+                <div className="qlabel">What is this document about?</div>
+                <div className="qopts">
+                  {cats.map(c => <button key={c.key} type="button" className={'qopt' + (ans[i].category === c.key ? ' on' : '')}
+                    onClick={() => set(i, { category: c.key })}>{c.label}</button>)}
+                </div>
+                <div className="qlabel">Short note for students <span className={'qcount' + (ans[i].note.length >= NOTE_MAX ? ' full' : '')}>{ans[i].note.length}/{NOTE_MAX}</span></div>
+                <input className="field" maxLength={NOTE_MAX} value={ans[i].note} placeholder={hint}
+                  onChange={e => set(i, { note: e.target.value })} />
+              </div>
+            )
+          })}
+        </div>
+        <div className="modal-acts">
+          <button className="btn" onClick={onCancel}>Cancel</button>
+          <button className="btn p" disabled={!ok} onClick={() => onSubmit(ans.map(a => ({ ...a, note: a.note.trim() })))}>{action}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function Staff({ user, out }: { user: User; out: () => void }) {
   const [docs, setDocs] = useState<Doc[]>([])
   const [hot, setHot] = useState(false)
+  const [cats, setCats] = useState<Cat[]>([])
+  const [staged, setStaged] = useState<File[]>([])       // files chosen, waiting for the staff's answers
+  const [editing, setEditing] = useState<Doc | null>(null)
   const pick = useRef<HTMLInputElement>(null)
   const load = () => call('/documents').then(setDocs).catch(e => notify(e.message))
   useEffect(() => { load(); const t = setInterval(load, 2500); return () => clearInterval(t) }, [])
-  const upload = async (fl: FileList | null) => {
-    if (!fl?.length) return
-    const fd = new FormData();[...fl].forEach(f => fd.append('files', f))
+  useEffect(() => { call('/categories').then(setCats).catch(e => notify(e.message)) }, [])
+  const stage = (fl: FileList | null) => { if (fl?.length) setStaged([...fl]) }
+  const upload = async (answers: Answer[]) => {
+    const fd = new FormData(); staged.forEach(f => fd.append('files', f)); fd.append('meta', JSON.stringify(answers))
+    setStaged([])
     try {
       const r = await call('/documents', { method: 'POST', body: fd })
       r.filter((x: any) => x.error).forEach((x: any) => notify(`${x.file}: ${x.error}`)); load()
     } catch (e) { notify((e as Error).message) }
   }
+  const saveMeta = async (a: Answer[]) => {
+    const d = editing; setEditing(null)
+    if (!d) return
+    try { await call(`/documents/${d.id}`, { method: 'PATCH', body: JSON.stringify(a[0]) }); load() } catch (e) { notify((e as Error).message) }
+  }
+  const catLabel = (k?: string | null) => cats.find(c => c.key === k)?.label
   const n = (...s: string[]) => docs.filter(d => s.includes(d.status)).length
   return (
     <section className="view on staff-view">
@@ -156,10 +212,10 @@ function Staff({ user, out }: { user: User; out: () => void }) {
             <div className="stat"><span>Total</span><b>{docs.length}</b></div><div className="stat"><span>Ready</span><b>{n('ready')}</b></div>
             <div className="stat"><span>Processing</span><b>{n('uploaded', 'processing')}</b></div><div className="stat"><span>Failed</span><b>{n('failed')}</b></div>
           </div>
-          <input ref={pick} type="file" multiple hidden accept=".pdf,.jpg,.jpeg,.png,.docx,.txt" onChange={e => { upload(e.target.files); e.target.value = '' }} />
+          <input ref={pick} type="file" multiple hidden accept=".pdf,.jpg,.jpeg,.png,.docx,.txt" onChange={e => { stage(e.target.files); e.target.value = '' }} />
           <div className={'drop' + (hot ? ' hot' : '')} onClick={() => pick.current?.click()}
             onDragOver={e => { e.preventDefault(); setHot(true) }} onDragLeave={() => setHot(false)}
-            onDrop={e => { e.preventDefault(); setHot(false); upload(e.dataTransfer.files) }}>
+            onDrop={e => { e.preventDefault(); setHot(false); stage(e.dataTransfer.files) }}>
             <b>Drop files here, or click to browse</b><span>PDF, scanned PDF, JPG, PNG, DOCX, TXT · up to 25 MB each</span>
           </div>
           <div className="card scroll"><table>
@@ -167,13 +223,15 @@ function Staff({ user, out }: { user: User; out: () => void }) {
             <tbody>
               {docs.map(d => (
                 <tr key={d.id}>
-                  <td><div className="fn"><span className="ft">{d.file_type.toUpperCase()}</span><div>{d.file_name}<small>{d.page_count ? `${d.page_count} page(s)` : '—'}</small></div></div></td>
+                  <td><div className="fn"><span className="ft">{d.file_type.toUpperCase()}</span><div>{d.file_name}<small>{d.page_count ? `${d.page_count} page(s)` : '—'}</small>
+                    {d.note && <small className="dnote"><b>{catLabel(d.category) ?? 'Other'}:</b> {d.note}</small>}</div></div></td>
                   <td>{d.uploaded_by_name}<small>{d.uploaded_by_role} · {d.department}</small></td>
                   <td>{when(d.uploaded_at)}</td>
                   <td><span className={'chip ' + LAB[d.status][0]} title={d.error}>{LAB[d.status][1]}</span>{d.error && <small>{d.error}</small>}</td>
                   <td>
                     <button className="lnk" onClick={() => openDoc(d.id, d.file_name, false)}>View</button>
                     <button className="lnk" onClick={() => openDoc(d.id, d.file_name, true)}>Download</button>
+                    <button className="lnk" onClick={() => setEditing(d)}>{d.note ? 'Edit note' : 'Add note'}</button>
                     {(d.status === 'failed' || d.status === 'ready') && <button className="lnk" onClick={() => call(`/documents/${d.id}/retry`, { method: 'POST' }).then(load).catch(e => notify(e.message))}>{d.status === 'failed' ? 'Retry' : 'Reprocess'}</button>}
                   </td>
                 </tr>
@@ -183,6 +241,10 @@ function Staff({ user, out }: { user: User; out: () => void }) {
           </table></div>
         </div>
       </main>
+      {!!staged.length && <MetaDialog title={staged.length > 1 ? `Tell students about these ${staged.length} documents` : 'Tell students about this document'}
+        action="Upload" items={staged.map(f => ({ name: f.name }))} cats={cats} onCancel={() => setStaged([])} onSubmit={upload} />}
+      {editing && <MetaDialog title="Edit note for students" action="Save" items={[{ name: editing.file_name, category: editing.category, note: editing.note }]}
+        cats={cats} onCancel={() => setEditing(null)} onSubmit={saveMeta} />}
     </section>
   )
 }
@@ -203,7 +265,15 @@ function Student({ user, out }: { user: User; out: () => void }) {
   const end = useRef<HTMLDivElement>(null)
   const inp = useRef<HTMLInputElement>(null)
   const [idx, setIdx] = useState(user.indexed)
-  const loadChats = () => { call('/me').then(u => setIdx(u.indexed)).catch(() => { }); return call('/chats').then(setChats).catch(() => { }) }
+  const [cats, setCats] = useState<Cat[]>([])
+  const [upd, setUpd] = useState<Upd[]>([])
+  const loadUpdates = () => call('/updates').then(setUpd).catch(() => { })
+  const loadChats = () => { call('/me').then(u => setIdx(u.indexed)).catch(() => { }); loadUpdates(); return call('/chats').then(setChats).catch(() => { }) }
+  useEffect(() => { call('/categories').then(setCats).catch(() => { }) }, [])
+  // only topics that currently have a published document, in the order staff defined them
+  const avail = cats.map(c => ({ ...c, items: upd.filter(u => u.category === c.key) })).filter(c => c.items.length)
+  const showCat = (c: { label: string; items: Upd[] }) =>
+    setMsgs(m => [...m, { role: 'assistant', text: '', updates: { label: c.label, items: c.items } }])
   useEffect(() => { loadChats() }, [])
   useEffect(() => { end.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs, busy])
   const open = async (id: number) => { try { setMsgs(await call(`/chats/${id}`)); setActive(id) } catch (e) { notify((e as Error).message) } }
@@ -256,8 +326,22 @@ function Student({ user, out }: { user: User; out: () => void }) {
         <div className="chead"><div style={{ minWidth: 0 }}><b>{chats.find(c => c.id === active)?.title ?? 'Ask CampusFlow'}</b><span>Answers come only from published documents</span></div>
           <span className="chip ok">{idx} document{idx === 1 ? '' : 's'} indexed</span></div>
         <div className="feed"><div className="col">
-          {!msgs.length && <div className="welcome"><h3>What would you like to know?</h3><p>Ask in plain language. Every answer shows where it came from.</p></div>}
-          {msgs.map((m, i) => m.role === 'user' ? <div key={i} className="msg u">{m.text}</div> : (
+          {!msgs.length && <div className="welcome"><h3>What would you like to know?</h3><p>Ask in plain language. Every answer shows where it came from.</p>
+            {!!avail.length && <><div className="sugg-title">Available right now, tap to see</div>
+              <div className="sugg">{avail.map(c => <button key={c.key} onClick={() => showCat(c)}>{c.label}<span className="cnt">{c.items.length}</span></button>)}</div></>}
+          </div>}
+          {msgs.map((m, i) => m.role === 'user' ? <div key={i} className="msg u">{m.text}</div> : m.updates ? (
+            <div key={i} className="msg a">
+              <div className="lbl"><span>{m.updates.label}</span><span className="chip ok">{m.updates.items.length} available</span></div>
+              {m.updates.items.map(u => (
+                <div key={u.id} className="upd">
+                  <p>{u.note || u.file_name}</p>
+                  <div className="upd-row"><small>{u.file_name} · {when(u.uploaded_at)}</small>
+                    <span><button className="lnk" onClick={() => openDoc(u.id, u.file_name, false)}>View</button>{' '}
+                      <button className="lnk" onClick={() => openDoc(u.id, u.file_name, true)}>Download</button></span></div>
+                </div>))}
+            </div>
+          ) : (
             <div key={i} className="msg a">
               <div className="lbl"><span>{m.grounded ? 'Answer' : 'CampusFlow'}</span>
                 {m.grounded ? <span className="chip ok">Verified</span> : <span className="chip warn">No source found</span>}</div>
@@ -282,7 +366,9 @@ function Student({ user, out }: { user: User; out: () => void }) {
           )}
           <div ref={end} />
         </div></div>
-        <div className="composer"><div className="box">
+        <div className="composer">
+          {!!msgs.length && !!avail.length && <div className="sugg compact">{avail.map(c => <button key={c.key} onClick={() => showCat(c)}>{c.label}<span className="cnt">{c.items.length}</span></button>)}</div>}
+          <div className="box">
           <input ref={inp} value={q} disabled={busy} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === 'Enter' && ask()} placeholder={busy ? 'CampusFlow is thinking...' : 'Ask about circulars, exams, fees…'} />
           <button className="btn p" onClick={() => ask()} disabled={busy}>{busy ? 'Thinking...' : 'Ask'}</button></div>
           <div className="note">{busy ? 'Generating answer from verified documents...' : 'Always check the source document for official confirmation.'}</div></div>
