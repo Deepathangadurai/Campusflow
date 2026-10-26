@@ -7,6 +7,8 @@ type Doc = {
   department: string; uploaded_at: string; status: 'uploaded' | 'processing' | 'ready' | 'failed'; error?: string; page_count?: number
   category?: string | null; note?: string | null
 }
+type StudentAccount = { id: number; name: string; email: string; department: string; created_at: string }
+type ImportResult = { created: number; skipped: number; errors: { row: number; message: string }[] }
 type Cat = { key: string; label: string; hint: string }
 type Upd = { id: number; file_name: string; category: string; note: string; uploaded_at: string }
 type Answer = { category: string; note: string }
@@ -18,11 +20,27 @@ const API = import.meta.env.VITE_API ?? '/api'
 let tok = sessionStorage.getItem('t') ?? ''
 let notify: (t: string) => void = () => { }
 
+function apiErrorMessage(detail: unknown, fallback: string) {
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) {
+    const messages = detail.flatMap(item =>
+      typeof item === 'string' ? [item] :
+        item && typeof item === 'object' && 'msg' in item && typeof item.msg === 'string' ? [item.msg] : []
+    )
+    if (messages.length) return messages.join('; ')
+  }
+  return fallback
+}
+
 async function call(path: string, o: RequestInit = {}) {
   const h: Record<string, string> = { Authorization: 'Bearer ' + tok }
   if (!(o.body instanceof FormData)) h['Content-Type'] = 'application/json'
   const r = await fetch(API + path, { ...o, headers: h })
-  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.detail || r.statusText) }
+  if (!r.ok) {
+    const payload: unknown = await r.json().catch(() => null)
+    const detail = payload && typeof payload === 'object' && 'detail' in payload ? payload.detail : undefined
+    throw new Error(apiErrorMessage(detail, r.statusText || `Request failed (${r.status})`))
+  }
   return r.json()
 }
 // Files are fetched with the auth header and opened from a blob, so no token ever appears in a URL.
@@ -79,12 +97,12 @@ function Landing({ pick }: { pick: (r: Role) => void }) {
 }
 
 function Login({ role, back, done }: { role: Role; back: () => void; done: (u: User) => void }) {
-  const [f, setF] = useState({ username: '', password: '' })
+  const [f, setF] = useState({ email: '', password: '' })
   const [err, setErr] = useState('')
   const go = async (e: React.FormEvent) => {
     e.preventDefault(); setErr('')
     try {
-      const r = await call('/login', { method: 'POST', body: JSON.stringify({ ...f, role }) })
+      const r = await call('/login', { method: 'POST', body: JSON.stringify({ email: f.email.trim(), password: f.password, role }) })
       tok = r.token; sessionStorage.setItem('t', tok); done(await call('/me'))
     } catch (x) { setErr((x as Error).message) }
   }
@@ -93,8 +111,8 @@ function Login({ role, back, done }: { role: Role; back: () => void; done: (u: U
       <Logo />
       <h2>{role === 'staff' ? 'Staff sign in' : 'Student sign in'}</h2>
       <p>Use the account issued by your college.</p>
-      <input className="field" placeholder="Username" value={f.username} onChange={e => setF({ ...f, username: e.target.value })} autoFocus />
-      <input className="field" type="password" placeholder="Password" value={f.password} onChange={e => setF({ ...f, password: e.target.value })} />
+      <input className="field" type="email" placeholder="Email" value={f.email} onChange={e => setF({ ...f, email: e.target.value })} autoComplete="username" autoFocus required />
+      <input className="field" type="password" placeholder="Password" value={f.password} onChange={e => setF({ ...f, password: e.target.value })} autoComplete="current-password" required />
       {err && <div className="err">{err}</div>}
       <button className="btn p">Sign in</button>
       <button type="button" className="link" onClick={back}>← Choose a different role</button>
@@ -156,13 +174,23 @@ function MetaDialog({ title, action, items, cats, onCancel, onSubmit }: {
 
 function Staff({ user, out }: { user: User; out: () => void }) {
   const [docs, setDocs] = useState<Doc[]>([])
+  const [students, setStudents] = useState<StudentAccount[]>([])
+  const [section, setSection] = useState<'documents' | 'students'>('documents')
   const [hot, setHot] = useState(false)
   const [cats, setCats] = useState<Cat[]>([])
   const [staged, setStaged] = useState<File[]>([])       // files chosen, waiting for the staff's answers
   const [editing, setEditing] = useState<Doc | null>(null)
+  const [studentFile, setStudentFile] = useState<File | null>(null)
+  const [importResult, setImportResult] = useState<ImportResult | null>(null)
+  const [addingStudent, setAddingStudent] = useState(false)
+  const [studentForm, setStudentForm] = useState({ name: '', department: '', email: '', password: '' })
+  const [savingStudent, setSavingStudent] = useState(false)
   const pick = useRef<HTMLInputElement>(null)
+  const studentPick = useRef<HTMLInputElement>(null)
   const load = () => call('/documents').then(setDocs).catch(e => notify(e.message))
+  const loadStudents = () => call('/students').then(setStudents).catch(e => notify(e.message))
   useEffect(() => { load(); const t = setInterval(load, 2500); return () => clearInterval(t) }, [])
+  useEffect(() => { loadStudents() }, [])
   useEffect(() => { call('/categories').then(setCats).catch(e => notify(e.message)) }, [])
   const stage = (fl: FileList | null) => { if (fl?.length) setStaged([...fl]) }
   const upload = async (answers: Answer[]) => {
@@ -178,6 +206,36 @@ function Staff({ user, out }: { user: User; out: () => void }) {
     if (!d) return
     try { await call(`/documents/${d.id}`, { method: 'PATCH', body: JSON.stringify(a[0]) }); load() } catch (e) { notify((e as Error).message) }
   }
+  const importStudents = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!studentFile) return
+    const fd = new FormData()
+    fd.append('file', studentFile)
+    try {
+      const result: ImportResult = await call('/students/import', { method: 'POST', body: fd })
+      setImportResult(result)
+      setStudentFile(null)
+      if (studentPick.current) studentPick.current.value = ''
+      loadStudents()
+      notify(`Imported ${result.created} student${result.created === 1 ? '' : 's'}; ${result.skipped} skipped`)
+    } catch (e) { notify((e as Error).message) }
+  }
+  const addStudent = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSavingStudent(true)
+    try {
+      await call('/students', { method: 'POST', body: JSON.stringify(studentForm) })
+      setStudentForm({ name: '', department: '', email: '', password: '' })
+      setAddingStudent(false)
+      loadStudents()
+      notify('Student account created')
+    } catch (e) { notify((e as Error).message) } finally { setSavingStudent(false) }
+  }
+  const removeStudent = async (student: StudentAccount) => {
+    if (!window.confirm(`Remove ${student.name}'s student account?`)) return
+    try { await call(`/students/${student.id}`, { method: 'DELETE' }); loadStudents(); notify('Student account removed') }
+    catch (e) { notify((e as Error).message) }
+  }
   const catLabel = (k?: string | null) => cats.find(c => c.key === k)?.label
   const n = (...s: string[]) => docs.filter(d => s.includes(d.status)).length
   return (
@@ -185,6 +243,16 @@ function Staff({ user, out }: { user: User; out: () => void }) {
       <header className="staff-header">
         <div className="staff-header-inner">
           <Logo />
+          <nav className="staff-tabs" aria-label="Staff sections">
+            <button className={section === 'documents' ? 'active' : ''} aria-current={section === 'documents' ? 'page' : undefined} onClick={() => setSection('documents')}>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.75h8l4 4v12.5H6z" /><path d="M14 3.75v4h4M9 12h6M9 15.5h6" /></svg>
+              Documents
+            </button>
+            <button className={section === 'students' ? 'active' : ''} aria-current={section === 'students' ? 'page' : undefined} onClick={() => setSection('students')}>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 20v-1.5a3.5 3.5 0 0 0-3.5-3.5h-5A3.5 3.5 0 0 0 4 18.5V20" /><circle cx="10" cy="7.5" r="3.5" /><path d="M16 4.25a3.5 3.5 0 0 1 0 6.75M18 15h.5a3.5 3.5 0 0 1 3.5 3.5V20" /></svg>
+              Students
+            </button>
+          </nav>
           <div className="staff-user">
             <div className="av">{user.name.slice(0, 1)}</div>
             <div className="nm">
@@ -204,47 +272,102 @@ function Staff({ user, out }: { user: User; out: () => void }) {
       </header>
       <main className="staff-main">
         <div className="staff-content">
-          <div className="top">
-            <p className="top-sub">Files become searchable only after indexing succeeds.</p>
-            <button className="btn p" onClick={() => pick.current?.click()}>Upload documents</button>
-          </div>
-          <div className="stats">
-            <div className="stat"><span>Total</span><b>{docs.length}</b></div><div className="stat"><span>Ready</span><b>{n('ready')}</b></div>
-            <div className="stat"><span>Processing</span><b>{n('uploaded', 'processing')}</b></div><div className="stat"><span>Failed</span><b>{n('failed')}</b></div>
-          </div>
-          <input ref={pick} type="file" multiple hidden accept=".pdf,.jpg,.jpeg,.png,.docx,.txt" onChange={e => { stage(e.target.files); e.target.value = '' }} />
-          <div className={'drop' + (hot ? ' hot' : '')} onClick={() => pick.current?.click()}
-            onDragOver={e => { e.preventDefault(); setHot(true) }} onDragLeave={() => setHot(false)}
-            onDrop={e => { e.preventDefault(); setHot(false); stage(e.dataTransfer.files) }}>
-            <b>Drop files here, or click to browse</b><span>PDF, scanned PDF, JPG, PNG, DOCX, TXT · up to 25 MB each</span>
-          </div>
-          <div className="card scroll"><table>
-            <thead><tr><th>File</th><th>Uploaded by</th><th>Date & time</th><th>Status</th><th></th></tr></thead>
-            <tbody>
-              {docs.map(d => (
-                <tr key={d.id}>
-                  <td><div className="fn"><span className="ft">{d.file_type.toUpperCase()}</span><div>{d.file_name}<small>{d.page_count ? `${d.page_count} page(s)` : '—'}</small>
-                    {d.note && <small className="dnote"><b>{catLabel(d.category) ?? 'Other'}:</b> {d.note}</small>}</div></div></td>
-                  <td>{d.uploaded_by_name}<small>{d.uploaded_by_role} · {d.department}</small></td>
-                  <td>{when(d.uploaded_at)}</td>
-                  <td><span className={'chip ' + LAB[d.status][0]} title={d.error}>{LAB[d.status][1]}</span>{d.error && <small>{d.error}</small>}</td>
-                  <td>
-                    <button className="lnk" onClick={() => openDoc(d.id, d.file_name, false)}>View</button>
-                    <button className="lnk" onClick={() => openDoc(d.id, d.file_name, true)}>Download</button>
-                    <button className="lnk" onClick={() => setEditing(d)}>{d.note ? 'Edit note' : 'Add note'}</button>
-                    {(d.status === 'failed' || d.status === 'ready') && <button className="lnk" onClick={() => call(`/documents/${d.id}/retry`, { method: 'POST' }).then(load).catch(e => notify(e.message))}>{d.status === 'failed' ? 'Retry' : 'Reprocess'}</button>}
-                  </td>
-                </tr>
-              ))}
-              {!docs.length && <tr><td colSpan={5} style={{ color: 'var(--mute)' }}>No documents yet.</td></tr>}
-            </tbody>
-          </table></div>
+          {section === 'documents' ? <>
+            <div className="top">
+              <p className="top-sub">Files become searchable only after indexing succeeds.</p>
+              <button className="btn p" onClick={() => pick.current?.click()}>Upload documents</button>
+            </div>
+            <div className="stats">
+              <div className="stat"><span>Total</span><b>{docs.length}</b></div><div className="stat"><span>Ready</span><b>{n('ready')}</b></div>
+              <div className="stat"><span>Processing</span><b>{n('uploaded', 'processing')}</b></div><div className="stat"><span>Failed</span><b>{n('failed')}</b></div>
+            </div>
+            <input ref={pick} type="file" multiple hidden accept=".pdf,.jpg,.jpeg,.png,.docx,.txt" onChange={e => { stage(e.target.files); e.target.value = '' }} />
+            <div className={'drop' + (hot ? ' hot' : '')} onClick={() => pick.current?.click()}
+              onDragOver={e => { e.preventDefault(); setHot(true) }} onDragLeave={() => setHot(false)}
+              onDrop={e => { e.preventDefault(); setHot(false); stage(e.dataTransfer.files) }}>
+              <b>Drop files here, or click to browse</b><span>PDF, scanned PDF, JPG, PNG, DOCX, TXT · up to 25 MB each</span>
+            </div>
+            <div className="card scroll"><table>
+              <thead><tr><th>File</th><th>Uploaded by</th><th>Date & time</th><th>Status</th><th></th></tr></thead>
+              <tbody>
+                {docs.map(d => (
+                  <tr key={d.id}>
+                    <td><div className="fn"><span className="ft">{d.file_type.toUpperCase()}</span><div>{d.file_name}<small>{d.page_count ? `${d.page_count} page(s)` : '—'}</small>
+                      {d.note && <small className="dnote"><b>{catLabel(d.category) ?? 'Other'}:</b> {d.note}</small>}</div></div></td>
+                    <td>{d.uploaded_by_name}<small>{d.uploaded_by_role} · {d.department}</small></td>
+                    <td>{when(d.uploaded_at)}</td>
+                    <td><span className={'chip ' + LAB[d.status][0]} title={d.error}>{LAB[d.status][1]}</span>{d.error && <small>{d.error}</small>}</td>
+                    <td>
+                      <button className="lnk" onClick={() => openDoc(d.id, d.file_name, false)}>View</button>
+                      <button className="lnk" onClick={() => openDoc(d.id, d.file_name, true)}>Download</button>
+                      <button className="lnk" onClick={() => setEditing(d)}>{d.note ? 'Edit note' : 'Add note'}</button>
+                      {(d.status === 'failed' || d.status === 'ready') && <button className="lnk" onClick={() => call(`/documents/${d.id}/retry`, { method: 'POST' }).then(load).catch(e => notify(e.message))}>{d.status === 'failed' ? 'Retry' : 'Reprocess'}</button>}
+                    </td>
+                  </tr>
+                ))}
+                {!docs.length && <tr><td colSpan={5} style={{ color: 'var(--mute)' }}>No documents yet.</td></tr>}
+              </tbody>
+            </table></div>
+          </> : <>
+            <div className="top student-top">
+              <p className="top-sub">Manage student accounts. Students can only log in with credentials you create here.</p>
+              <button className="btn p add-student-button" onClick={() => setAddingStudent(true)}>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+                Add student manually
+              </button>
+            </div>
+            <form className="student-import card" onSubmit={importStudents}>
+              <div>
+                <b className="student-import-title"><span className="student-upload-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 16V4m0 0L7 9m5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" /></svg></span>Upload student list</b>
+                <p>Choose an .xlsx file with columns: <strong>Name, Department, Mail ID, and Password.</strong> Passwords must be at least 6 characters. Limit: 1,000 students and 5 MB per file.</p>
+              </div>
+              <input ref={studentPick} className="student-file-input" type="file" accept=".xlsx" required={!studentFile} onChange={e => setStudentFile(e.target.files?.[0] ?? null)} />
+              <button className={'student-file-select' + (studentFile ? ' selected' : '')} type="button" onClick={() => studentPick.current?.click()} aria-label="Choose Excel workbook">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0L7 9m5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" /></svg>
+                <span>{studentFile ? studentFile.name : 'Choose .xlsx file'}</span>
+                {studentFile && <span className="student-file-change">Change</span>}
+              </button>
+              <button className="btn p student-upload-button" type="submit" disabled={!studentFile}>
+                Upload Excel
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0L7 9m5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" /></svg>
+              </button>
+            </form>
+            {importResult && <div className="import-result" role="status">
+              <b>Import complete:</b> {importResult.created} created, {importResult.skipped} skipped.
+              {!!importResult.errors.length && <ul>{importResult.errors.map(error => <li key={error.row}>Row {error.row}: {error.message}</li>)}</ul>}
+            </div>}
+            <div className="card scroll student-table"><table>
+              <thead><tr><th>Name</th><th>Email</th><th>Department</th><th>Created</th><th></th></tr></thead>
+              <tbody>
+                {students.map(student => <tr key={student.id}>
+                  <td><strong>{student.name}</strong></td><td>{student.email}</td><td>{student.department}</td>
+                  <td>{student.created_at ? when(student.created_at) : '—'}</td>
+                  <td><button className="lnk remove-student" onClick={() => removeStudent(student)}>Remove</button></td>
+                </tr>)}
+                {!students.length && <tr><td colSpan={5} className="student-empty">No student accounts yet.</td></tr>}
+              </tbody>
+            </table></div>
+          </>}
         </div>
       </main>
       {!!staged.length && <MetaDialog title={staged.length > 1 ? `Tell students about these ${staged.length} documents` : 'Tell students about this document'}
         action="Upload" items={staged.map(f => ({ name: f.name }))} cats={cats} onCancel={() => setStaged([])} onSubmit={upload} />}
       {editing && <MetaDialog title="Edit note for students" action="Save" items={[{ name: editing.file_name, category: editing.category, note: editing.note }]}
         cats={cats} onCancel={() => setEditing(null)} onSubmit={saveMeta} />}
+      {addingStudent && <div className="modal-bg" onMouseDown={e => { if (e.target === e.currentTarget) setAddingStudent(false) }}>
+        <form className="modal student-modal" onSubmit={addStudent}>
+          <h3>Add student manually</h3>
+          <p className="modal-sub">Create login credentials for one student.</p>
+          <label>Name<input className="field" value={studentForm.name} onChange={e => setStudentForm({ ...studentForm, name: e.target.value })} required /></label>
+          <label>Department<input className="field" value={studentForm.department} onChange={e => setStudentForm({ ...studentForm, department: e.target.value })} required /></label>
+          <label>Email<input className="field" type="email" value={studentForm.email} onChange={e => setStudentForm({ ...studentForm, email: e.target.value })} required /></label>
+          <label>Password<input className="field" type="password" minLength={6} value={studentForm.password} onChange={e => setStudentForm({ ...studentForm, password: e.target.value })} required /></label>
+          <div className="modal-acts">
+            <button type="button" className="btn" onClick={() => setAddingStudent(false)}>Cancel</button>
+            <button className="btn p" disabled={savingStudent}>{savingStudent ? 'Creating…' : 'Create student'}</button>
+          </div>
+        </form>
+      </div>}
     </section>
   )
 }

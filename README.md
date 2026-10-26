@@ -19,10 +19,10 @@ No Docker, no vector-database server.
 ## Run (two terminals)
 - Backend (inside `backend`, venv active): `uvicorn app.main:app --reload --port 8000`
 - Frontend (inside `frontend`): `npm run dev`
-- Open http://localhost:5173  ·  Staff: `staff` / `staff123`  ·  Student: `student` / `student123`
+- Open http://localhost:5173 and sign in with the email address and password for an account provisioned by your college.
 
 ## Bulk student accounts
-From the staff dashboard, open **Students** and upload an `.xlsx` workbook. The first sheet must have a header row named `Name`, `Department`, `Mail ID` (or `Email`), and `Password`. Each valid row creates one student account; duplicate email addresses and invalid rows are skipped and reported with their spreadsheet row numbers. Passwords must be at least 6 characters and are stored as hashes. Each workbook is limited to 1,000 student rows and 5 MB.
+From the staff dashboard, open **Students** to upload an `.xlsx` workbook or create a student account manually. The first sheet must have a header row named `Name`, `Department`, `Mail ID` (or `Email`), and `Password`. Each valid row creates one student account; duplicate email addresses and invalid rows are skipped and reported with their spreadsheet row numbers. Passwords must be at least 6 characters and are stored as hashes. Each workbook is limited to 1,000 student rows and 5 MB.
 
 Answer generation uses the local Ollama model. The first upload downloads the MiniLM embedding model (internet needed once). Data lives in `backend/data/`.
 `CONF_THRESHOLD` is the confidence gate (spec suggests 0.72; defaults to 0.35 - raise it until off-topic questions hit the fallback).

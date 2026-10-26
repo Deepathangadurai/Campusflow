@@ -97,11 +97,23 @@ h3 {
     background: var(--surface);
     font-weight: 600;
     font-size: 14px;
-    transition: .15s
+    transition: background-color .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease, filter .16s ease
 }
 
 .btn:hover {
     border-color: var(--acc)
+}
+
+.btn:focus-visible,
+.staff-tabs button:focus-visible,
+.student-file-select:focus-visible,
+.lnk:focus-visible {
+    outline: 3px solid color-mix(in srgb, var(--acc) 35%, transparent);
+    outline-offset: 3px;
+}
+
+.btn:active:not(:disabled) {
+    transform: translateY(1px);
 }
 
 .btn.p {
@@ -111,7 +123,16 @@ h3 {
 }
 
 .btn.p:hover {
-    filter: brightness(1.06)
+    filter: brightness(1.06);
+    box-shadow: 0 5px 14px rgba(166, 61, 18, .18);
+}
+
+.btn.p:disabled {
+    background: #d9a184;
+    border-color: #d9a184;
+    color: #fff;
+    cursor: not-allowed;
+    box-shadow: none;
 }
 
 .chip {
@@ -1225,6 +1246,53 @@ td:nth-child(3) {
     gap: 16px;
 }
 
+.staff-tabs {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: #fffaf5;
+}
+
+.staff-tabs button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 18px;
+    border-radius: 11px;
+    color: var(--mute);
+    font-weight: 600;
+    transition: color .16s ease, background-color .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+
+.staff-tabs button:hover:not(.active) {
+    color: var(--ink);
+    background: rgba(255, 255, 255, .75);
+}
+
+.staff-tabs button:active {
+    transform: translateY(1px);
+}
+
+.staff-tabs button svg {
+    width: 17px;
+    height: 17px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.staff-tabs button.active {
+    color: var(--acc);
+    background: var(--surface);
+    box-shadow: 0 2px 7px rgba(31, 27, 22, .1);
+}
+
 /* Big CampusFlow in staff header */
 .staff-header .logo {
     font-size: 26px;
@@ -1327,9 +1395,228 @@ td:nth-child(3) {
     margin: 0;
 }
 
+.student-top {
+    margin-bottom: 24px;
+}
+
+.student-import {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 340px) auto;
+    align-items: center;
+    gap: 16px;
+    padding: 20px;
+    margin-bottom: 24px;
+}
+
+.student-import > div > b {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin-bottom: 4px;
+}
+
+.student-upload-icon {
+    width: 32px;
+    height: 32px;
+    display: inline-grid;
+    place-items: center;
+    flex: 0 0 auto;
+    border-radius: 9px;
+    color: var(--acc);
+    background: var(--acc-soft);
+}
+
+.student-upload-icon svg {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.student-import p {
+    color: var(--mute);
+    font-size: 14px;
+}
+
+.student-file-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    clip-path: inset(50%);
+}
+
+.student-file-select {
+    min-width: 0;
+    min-height: 50px;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fffdfb;
+    color: var(--ink);
+    text-align: left;
+    transition: background-color .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+
+.student-file-select:hover {
+    border-color: var(--acc);
+    background: #fffaf5;
+}
+
+.student-file-select:active {
+    transform: translateY(1px);
+}
+
+.student-file-select svg,
+.student-upload-button svg,
+.add-student-button svg {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.9;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    flex: 0 0 auto;
+}
+
+.student-file-select > span:first-of-type {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--mute);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.student-file-select.selected > span:first-of-type {
+    color: var(--ink);
+}
+
+.student-file-change {
+    margin-left: auto;
+    color: var(--acc);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.student-upload-button {
+    min-height: 50px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    padding-inline: 20px;
+    white-space: nowrap;
+}
+
+.student-upload-button svg {
+    width: 17px;
+    height: 17px;
+}
+
+.add-student-button {
+    min-height: 46px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    padding-inline: 18px;
+    box-shadow: 0 3px 8px rgba(166, 61, 18, .12);
+}
+
+.student-file-input:focus-visible + .student-file-select {
+    outline: 3px solid color-mix(in srgb, var(--acc) 35%, transparent);
+    outline-offset: 3px;
+}
+
+.student-import button:disabled {
+    cursor: not-allowed;
+}
+
+.student-table table {
+    min-width: 700px;
+}
+
+.student-empty {
+    color: var(--mute);
+}
+
+.remove-student {
+    color: var(--bad);
+}
+
+.import-result {
+    margin: -8px 0 18px;
+    color: var(--mute);
+    font-size: 14px;
+}
+
+.import-result ul {
+    margin: 6px 0 0;
+    padding-left: 22px;
+    color: var(--bad);
+}
+
+.student-modal {
+    gap: 12px;
+}
+
+.student-modal label {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    color: var(--mute);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.student-modal .field {
+    color: var(--ink);
+    font-weight: 400;
+}
+
 @media(max-width:640px) {
     .staff-user .nm small {
         display: none;
+    }
+
+    .staff-header-inner {
+        flex-wrap: wrap;
+    }
+
+    .staff-tabs {
+        order: 3;
+        width: 100%;
+        justify-content: center;
+    }
+
+    .student-import {
+        grid-template-columns: 1fr;
+    }
+
+    .student-import .student-upload-button {
+        width: 100%;
+    }
+
+    .student-top .btn {
+        width: 100%;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .btn,
+    .staff-tabs button,
+    .student-file-select {
+        transition: none;
     }
 }
 /* ---- Upload questions (staff) ---- */
