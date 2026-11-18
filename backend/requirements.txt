@@ -13,3 +13,4 @@ pillow
 sentence-transformers
 rank-bm25
 requests
+faster-whisper

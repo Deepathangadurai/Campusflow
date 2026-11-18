@@ -154,7 +154,7 @@ def correct_query(q, texts):
     return re.sub(r"[a-zA-Z0-9][a-zA-Z0-9\-/]*", replace, q)
 
 def excerpt(text, q):
-    """Keep the sentences that best match the question to reduce prompt size."""
+    """Keep the best-matching sentences with neighbors for question-and-answer context."""
     terms = {word for word in tok(q) if word not in STOP}
     sentences = re.split(r"(?<=[.!?])\s+", text.strip())
     scored = [(len(terms & set(tok(sentence))), i, sentence)
@@ -162,8 +162,13 @@ def excerpt(text, q):
     best = max((score for score, _, _ in scored), default=0)
     if best == 0:
         return text
-    selected = [(i, sentence) for score, i, sentence in scored if score == best][:2]
-    return " ".join(sentence for _, sentence in selected)
+    best_indexes = [i for score, i, _ in scored if score == best][:2]
+    selected_indexes = {
+        neighbor
+        for i in best_indexes
+        for neighbor in range(max(0, i - 1), min(len(sentences), i + 2))
+    }
+    return " ".join(sentence for i, sentence in enumerate(sentences) if i in selected_indexes)
 
 def search(q, corpus, k=3, per_doc=2):
     """corpus: [(chunk_id, text, embedding_bytes, doc_id)] of READY documents.

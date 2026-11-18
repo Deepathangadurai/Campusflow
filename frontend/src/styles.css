@@ -572,67 +572,111 @@ td small {
 }
 
 .welcome-message {
-    max-width: 620px;
-    padding: 16px 18px;
-    border: 1px solid var(--line);
-    border-radius: 16px 16px 16px 4px;
+    max-width: 760px;
+    width: 100%;
+    padding: 22px 24px 18px;
+    border: 1px solid #dfe7f3;
+    border-radius: 18px;
     background: var(--surface);
-    box-shadow: 0 1px 3px rgba(120, 60, 10, .05)
+    box-shadow: 0 10px 28px rgba(60, 52, 44, .10)
 }
 
-.welcome-message p {
-    margin: 0 0 8px;
-    line-height: 1.5
+.welcome-message h2 {
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 25px;
+    font-weight: 700;
+    color: #171b25;
+}
+
+.welcome-message h2 span {
+    color: #d76822;
+}
+
+.welcome-message h3 {
+    margin-top: 7px;
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 20px;
+    color: #171b25;
+}
+
+.welcome-message > p {
+    margin-top: 7px;
+    color: #4d5360;
+    line-height: 1.45;
 }
 
 .welcome-message .welcome-prompt {
-    margin: 10px 0 0;
-    color: var(--mute);
-    font-size: 13px
+    margin: 14px 0 11px;
+    padding-left: 10px;
+    border-left: 4px solid #f08032;
+    color: #303644;
+    font-size: 16px;
+    font-weight: 800;
 }
 
-.welcome-topics {
+.welcome-actions {
     display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 10px
+    gap: 10px;
 }
 
-.welcome-topics button {
-    display: inline-flex;
+.welcome-actions button {
+    flex: 1;
+    min-width: 0;
+    min-height: 68px;
+    display: flex;
     align-items: center;
-    gap: 7px;
-    padding: 7px 12px;
-    border: 1px solid #e8cdb8;
-    border-radius: 999px;
-    background: #fffaf5;
-    color: var(--acc-text);
-    font: inherit;
-    font-size: 13px;
-    cursor: pointer;
-    transition: background .15s, border-color .15s
+    justify-content: center;
+    gap: 9px;
+    padding: 10px 8px;
+    border: 1px solid #f1dfd1;
+    border-radius: 12px;
+    background: #fff;
+    color: #353b47;
+    font-size: 14px;
+    font-weight: 800;
+    transition: border-color .15s, background .15s, transform .15s
 }
 
-.welcome-topics button:hover {
-    border-color: var(--acc);
-    background: var(--acc-soft)
+.welcome-actions button:hover {
+    border-color: #f08032;
+    background: #fff8f2;
+    transform: translateY(-1px)
 }
 
-.welcome-topics button:focus-visible {
+.welcome-actions button:focus-visible {
     outline: 2px solid var(--acc);
     outline-offset: 2px
 }
 
-.welcome-topics button span {
-    display: inline-grid;
-    min-width: 20px;
-    height: 20px;
-    place-items: center;
-    padding: 0 5px;
-    border-radius: 999px;
-    background: #f8e4d3;
-    font-size: 11px;
-    font-weight: 700
+.welcome-actions svg {
+    width: 25px;
+    height: 25px;
+    flex: none;
+    fill: none;
+    stroke: #ef7d27;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.welcome-trust {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid #edf0f5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: #667080;
+    font-size: 13px;
+}
+
+.welcome-trust svg {
+    width: 16px;
+    height: 16px;
+    fill: #f6efe8;
+    stroke: #ef7d27;
+    stroke-width: 2;
 }
 
 .sugg {
@@ -798,6 +842,82 @@ td small {
     padding: 8px 0
 }
 
+.voice-btn {
+    width: 38px;
+    height: 38px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border: 1px solid #e4cdb6;
+    border-radius: 10px;
+    background: #fff;
+    color: var(--acc-text);
+    transition: background .15s, border-color .15s, color .15s, box-shadow .15s
+}
+
+.voice-btn svg {
+    width: 19px;
+    height: 19px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round
+}
+
+.voice-btn svg rect {
+    fill: currentColor
+}
+
+.voice-btn:hover {
+    border-color: var(--acc-hi);
+    background: #fff7ed
+}
+
+.voice-btn:focus-visible {
+    outline: 3px solid rgba(249, 115, 22, .24);
+    outline-offset: 2px
+}
+
+.voice-btn.listening {
+    border-color: #dc2626;
+    background: #fee2e2;
+    color: #dc2626;
+    box-shadow: 0 0 0 4px rgba(220, 38, 38, .10);
+    animation: voice-pulse 1.2s ease-in-out infinite
+}
+
+.voice-btn:disabled {
+    opacity: .45;
+    cursor: not-allowed
+}
+
+.voice-wave {
+    height: 38px;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    flex: none;
+    padding: 0 3px
+}
+
+.voice-wave i {
+    width: 3px;
+    height: 8px;
+    border-radius: 999px;
+    background: #ef7d27;
+    animation: voice-wave 720ms ease-in-out infinite alternate
+}
+
+@keyframes voice-wave {
+    0% { height: 5px; opacity: .55 }
+    100% { height: 26px; opacity: 1 }
+}
+
+@keyframes voice-pulse {
+    50% { box-shadow: 0 0 0 7px rgba(220, 38, 38, .06) }
+}
+
 .note {
     text-align: center;
     color: var(--mute);
@@ -872,6 +992,19 @@ td small {
 
     .hero {
         padding-bottom: 24px
+    }
+
+    .welcome-message {
+        padding: 18px 16px 14px
+    }
+
+    .welcome-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr))
+    }
+
+    .welcome-break {
+        display: none
     }
 }
 

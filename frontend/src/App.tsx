@@ -8,6 +8,7 @@ type Doc = {
   category?: string | null; note?: string | null
 }
 type StudentAccount = { id: number; name: string; email: string; department: string; created_at: string }
+type StaffAccount = { id: number; name: string; email: string; department: string; created_at: string }
 type ImportResult = { created: number; skipped: number; errors: { row: number; message: string }[] }
 type Cat = { key: string; label: string; hint: string }
 type Upd = { id: number; file_name: string; category: string; note: string; uploaded_at: string }
@@ -98,6 +99,8 @@ function Landing({ pick }: { pick: (r: Role) => void }) {
 
 function Login({ role, back, done }: { role: Role; back: () => void; done: (u: User) => void }) {
   const [f, setF] = useState({ email: '', password: '' })
+  const [create, setCreate] = useState(false)
+  const [newStaff, setNewStaff] = useState({ name: '', department: '', email: '', password: '' })
   const [err, setErr] = useState('')
   const go = async (e: React.FormEvent) => {
     e.preventDefault(); setErr('')
@@ -106,15 +109,31 @@ function Login({ role, back, done }: { role: Role; back: () => void; done: (u: U
       tok = r.token; sessionStorage.setItem('t', tok); done(await call('/me'))
     } catch (x) { setErr((x as Error).message) }
   }
+  const createAccount = async (e: React.FormEvent) => {
+    e.preventDefault(); setErr('')
+    try {
+      const r = await call('/register', { method: 'POST', body: JSON.stringify(newStaff) })
+      tok = r.token; sessionStorage.setItem('t', tok); done(await call('/me'))
+    } catch (x) { setErr((x as Error).message) }
+  }
   return (
-    <form className="login" onSubmit={go}>
+    <form className="login" onSubmit={create ? createAccount : go}>
       <Logo />
-      <h2>{role === 'staff' ? 'Staff sign in' : 'Student sign in'}</h2>
-      <p>Use the account issued by your college.</p>
-      <input className="field" type="email" placeholder="Email" value={f.email} onChange={e => setF({ ...f, email: e.target.value })} autoComplete="username" autoFocus required />
-      <input className="field" type="password" placeholder="Password" value={f.password} onChange={e => setF({ ...f, password: e.target.value })} autoComplete="current-password" required />
+      <h2>{create ? 'Create staff account' : role === 'staff' ? 'Staff sign in' : 'Student sign in'}</h2>
+      <p>{create ? 'Enter details for the new staff account.' : 'Use the account issued by your college.'}</p>
+      {create ? <>
+        <input className="field" placeholder="Name" value={newStaff.name} onChange={e => setNewStaff({ ...newStaff, name: e.target.value })} autoComplete="name" autoFocus required />
+        <input className="field" placeholder="Department" value={newStaff.department} onChange={e => setNewStaff({ ...newStaff, department: e.target.value })} required />
+        <input className="field" type="email" placeholder="Email" value={newStaff.email} onChange={e => setNewStaff({ ...newStaff, email: e.target.value })} autoComplete="username" required />
+        <input className="field" type="password" placeholder="Password" value={newStaff.password} onChange={e => setNewStaff({ ...newStaff, password: e.target.value })} autoComplete="new-password" minLength={6} required />
+      </> : <>
+        <input className="field" type="email" placeholder="Email" value={f.email} onChange={e => setF({ ...f, email: e.target.value })} autoComplete="username" autoFocus required />
+        <input className="field" type="password" placeholder="Password" value={f.password} onChange={e => setF({ ...f, password: e.target.value })} autoComplete="current-password" required />
+      </>}
       {err && <div className="err">{err}</div>}
-      <button className="btn p">Sign in</button>
+      <button className="btn p">{create ? 'Create account' : 'Sign in'}</button>
+      {role === 'staff' && !create && <button type="button" className="link" onClick={() => { setErr(''); setCreate(true) }}>Create staff account</button>}
+      {create && <button type="button" className="link" onClick={() => { setErr(''); setCreate(false) }}>← Back to staff sign in</button>}
       <button type="button" className="link" onClick={back}>← Choose a different role</button>
     </form>
   )
@@ -175,7 +194,8 @@ function MetaDialog({ title, action, items, cats, onCancel, onSubmit }: {
 function Staff({ user, out }: { user: User; out: () => void }) {
   const [docs, setDocs] = useState<Doc[]>([])
   const [students, setStudents] = useState<StudentAccount[]>([])
-  const [section, setSection] = useState<'documents' | 'students'>('documents')
+  const [staffs, setStaffs] = useState<StaffAccount[]>([])
+  const [section, setSection] = useState<'documents' | 'students' | 'staffs'>('documents')
   const [hot, setHot] = useState(false)
   const [cats, setCats] = useState<Cat[]>([])
   const [staged, setStaged] = useState<File[]>([])       // files chosen, waiting for the staff's answers
@@ -185,12 +205,16 @@ function Staff({ user, out }: { user: User; out: () => void }) {
   const [addingStudent, setAddingStudent] = useState(false)
   const [studentForm, setStudentForm] = useState({ name: '', department: '', email: '', password: '' })
   const [savingStudent, setSavingStudent] = useState(false)
+  const [addingStaff, setAddingStaff] = useState(false)
+  const [staffForm, setStaffForm] = useState({ name: '', department: '', email: '', password: '' })
+  const [savingStaff, setSavingStaff] = useState(false)
   const pick = useRef<HTMLInputElement>(null)
   const studentPick = useRef<HTMLInputElement>(null)
   const load = () => call('/documents').then(setDocs).catch(e => notify(e.message))
   const loadStudents = () => call('/students').then(setStudents).catch(e => notify(e.message))
+  const loadStaffs = () => call('/staffs').then(setStaffs).catch(e => notify(e.message))
   useEffect(() => { load(); const t = setInterval(load, 2500); return () => clearInterval(t) }, [])
-  useEffect(() => { loadStudents() }, [])
+  useEffect(() => { loadStudents(); loadStaffs() }, [])
   useEffect(() => { call('/categories').then(setCats).catch(e => notify(e.message)) }, [])
   const stage = (fl: FileList | null) => { if (fl?.length) setStaged([...fl]) }
   const upload = async (answers: Answer[]) => {
@@ -231,6 +255,17 @@ function Staff({ user, out }: { user: User; out: () => void }) {
       notify('Student account created')
     } catch (e) { notify((e as Error).message) } finally { setSavingStudent(false) }
   }
+  const addStaff = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSavingStaff(true)
+    try {
+      await call('/staffs', { method: 'POST', body: JSON.stringify(staffForm) })
+      setStaffForm({ name: '', department: '', email: '', password: '' })
+      setAddingStaff(false)
+      loadStaffs()
+      notify('Staff account created')
+    } catch (e) { notify((e as Error).message) } finally { setSavingStaff(false) }
+  }
   const removeStudent = async (student: StudentAccount) => {
     if (!window.confirm(`Remove ${student.name}'s student account?`)) return
     try { await call(`/students/${student.id}`, { method: 'DELETE' }); loadStudents(); notify('Student account removed') }
@@ -251,6 +286,10 @@ function Staff({ user, out }: { user: User; out: () => void }) {
             <button className={section === 'students' ? 'active' : ''} aria-current={section === 'students' ? 'page' : undefined} onClick={() => setSection('students')}>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 20v-1.5a3.5 3.5 0 0 0-3.5-3.5h-5A3.5 3.5 0 0 0 4 18.5V20" /><circle cx="10" cy="7.5" r="3.5" /><path d="M16 4.25a3.5 3.5 0 0 1 0 6.75M18 15h.5a3.5 3.5 0 0 1 3.5 3.5V20" /></svg>
               Students
+            </button>
+            <button className={section === 'staffs' ? 'active' : ''} aria-current={section === 'staffs' ? 'page' : undefined} onClick={() => setSection('staffs')}>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4.5 20a7.5 7.5 0 0 1 15 0" /></svg>
+              Staff
             </button>
           </nav>
           <div className="staff-user">
@@ -308,7 +347,7 @@ function Staff({ user, out }: { user: User; out: () => void }) {
                 {!docs.length && <tr><td colSpan={5} style={{ color: 'var(--mute)' }}>No documents yet.</td></tr>}
               </tbody>
             </table></div>
-          </> : <>
+          </> : section === 'students' ? <>
             <div className="top student-top">
               <p className="top-sub">Manage student accounts. Students can only log in with credentials you create here.</p>
               <button className="btn p add-student-button" onClick={() => setAddingStudent(true)}>
@@ -347,6 +386,24 @@ function Staff({ user, out }: { user: User; out: () => void }) {
                 {!students.length && <tr><td colSpan={5} className="student-empty">No student accounts yet.</td></tr>}
               </tbody>
             </table></div>
+          </> : <>
+            <div className="top student-top">
+              <p className="top-sub">Create and manage staff accounts with access to this dashboard.</p>
+              <button className="btn p add-student-button" onClick={() => setAddingStaff(true)}>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+                Add staff manually
+              </button>
+            </div>
+            <div className="card scroll student-table"><table>
+              <thead><tr><th>Name</th><th>Email</th><th>Department</th><th>Created</th></tr></thead>
+              <tbody>
+                {staffs.map(staff => <tr key={staff.id}>
+                  <td><strong>{staff.name}</strong></td><td>{staff.email}</td><td>{staff.department}</td>
+                  <td>{staff.created_at ? when(staff.created_at) : '—'}</td>
+                </tr>)}
+                {!staffs.length && <tr><td colSpan={4} className="student-empty">No staff accounts yet.</td></tr>}
+              </tbody>
+            </table></div>
           </>}
         </div>
       </main>
@@ -368,6 +425,20 @@ function Staff({ user, out }: { user: User; out: () => void }) {
           </div>
         </form>
       </div>}
+      {addingStaff && <div className="modal-bg" onMouseDown={e => { if (e.target === e.currentTarget) setAddingStaff(false) }}>
+        <form className="modal student-modal" onSubmit={addStaff}>
+          <h3>Create staff account</h3>
+          <p className="modal-sub">Create login credentials for a staff member.</p>
+          <label>Name<input className="field" value={staffForm.name} onChange={e => setStaffForm({ ...staffForm, name: e.target.value })} required /></label>
+          <label>Department<input className="field" value={staffForm.department} onChange={e => setStaffForm({ ...staffForm, department: e.target.value })} required /></label>
+          <label>Mail ID<input className="field" type="email" value={staffForm.email} onChange={e => setStaffForm({ ...staffForm, email: e.target.value })} required /></label>
+          <label>Password<input className="field" type="password" minLength={6} value={staffForm.password} onChange={e => setStaffForm({ ...staffForm, password: e.target.value })} required /></label>
+          <div className="modal-acts">
+            <button type="button" className="btn" onClick={() => setAddingStaff(false)}>Cancel</button>
+            <button className="btn p" disabled={savingStaff}>{savingStaff ? 'Creating…' : 'Create staff'}</button>
+          </div>
+        </form>
+      </div>}
     </section>
   )
 }
@@ -386,8 +457,12 @@ function Student({ user, out }: { user: User; out: () => void }) {
   const [msgs, setMsgs] = useState<Msg[]>([])
   const [q, setQ] = useState('')
   const [busy, setBusy] = useState(false)
+  const [listening, setListening] = useState(false)
+  const [transcribing, setTranscribing] = useState(false)
   const end = useRef<HTMLDivElement>(null)
   const inp = useRef<HTMLInputElement>(null)
+  const recorderRef = useRef<MediaRecorder | null>(null)
+  const microphoneStreamRef = useRef<MediaStream | null>(null)
   const [idx, setIdx] = useState(user.indexed)
   const [cats, setCats] = useState<Cat[]>([])
   const [upd, setUpd] = useState<Upd[]>([])
@@ -400,10 +475,83 @@ function Student({ user, out }: { user: User; out: () => void }) {
     setMsgs(m => [...m, { role: 'assistant', text: '', updates: { label: c.label, items: c.items } }])
   useEffect(() => { loadChats() }, [])
   useEffect(() => { end.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs, busy])
+  useEffect(() => () => {
+    if (recorderRef.current?.state === 'recording') recorderRef.current.stop()
+    microphoneStreamRef.current?.getTracks().forEach(track => track.stop())
+  }, [])
   const open = async (id: number) => { try { setMsgs(await call(`/chats/${id}`)); setActive(id) } catch (e) { notify((e as Error).message) } }
   const fresh = () => { setActive(null); setMsgs([]); inp.current?.focus() }
   const del = async (id: number) => {
     try { await call(`/chats/${id}`, { method: 'DELETE' }); if (id === active) fresh(); loadChats() } catch (e) { notify((e as Error).message) }
+  }
+  const toggleVoiceInput = async () => {
+    if (listening) {
+      recorderRef.current?.stop()
+      setListening(false)
+      return
+    }
+    if (!window.isSecureContext) {
+      notify('Voice input requires HTTPS or localhost. Open the app on localhost or a secure URL.')
+      return
+    }
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      notify('Voice recording is not supported by this browser.')
+      return
+    }
+    let stream: MediaStream
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    } catch (error) {
+      const denied = error instanceof DOMException && (error.name === 'NotAllowedError' || error.name === 'SecurityError')
+      notify(denied
+        ? 'Microphone access was denied. Allow microphone access in the browser address bar.'
+        : 'Could not access the microphone. Check that a microphone is connected.')
+      return
+    }
+    microphoneStreamRef.current = stream
+    try {
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : (MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '')
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
+      const chunks: Blob[] = []
+      recorder.ondataavailable = event => {
+        if (event.data.size) chunks.push(event.data)
+      }
+      recorder.onstop = async () => {
+        stream.getTracks().forEach(track => track.stop())
+        microphoneStreamRef.current = null
+        setTranscribing(true)
+        try {
+          if (!chunks.length) throw new Error('No audio was recorded')
+          const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' })
+          const extension = blob.type.includes('mp4') ? 'm4a' : 'webm'
+          const fd = new FormData()
+          fd.append('audio', blob, `voice.${extension}`)
+          const result = await call('/speech/transcribe', { method: 'POST', body: fd })
+          const transcript = typeof result.text === 'string' ? result.text.trim() : ''
+          if (!transcript) throw new Error('No speech was detected')
+          setQ(previous => (previous.trim() ? previous.trim() + ' ' : '') + transcript)
+          inp.current?.focus()
+        } catch (error) {
+          notify((error as Error).message || 'Could not transcribe the recorded voice.')
+        } finally {
+          setTranscribing(false)
+          recorderRef.current = null
+        }
+      }
+      recorder.onerror = () => {
+        setListening(false)
+        notify('The audio recorder encountered an error.')
+      }
+      recorderRef.current = recorder
+      recorder.start()
+      setListening(true)
+    } catch {
+      stream.getTracks().forEach(track => track.stop())
+      microphoneStreamRef.current = null
+      notify('Could not start voice recording.')
+    }
   }
   const ask = async (t = q) => {
     t = t.trim()
@@ -452,18 +600,41 @@ function Student({ user, out }: { user: User; out: () => void }) {
         <div className="feed"><div className="col">
           {!msgs.length && <div className="welcome">
             <div className="welcome-message">
-              <p>Hi {user.name.split(' ')[0]}! I can help you find information from your college documents.</p>
-              {avail.length > 0
-                ? <p>Right now, I have updates about:</p>
-                : <p>There aren't any published updates yet, but you can still ask me a question.</p>}
-              {!!avail.length && <div className="welcome-topics" aria-label="Available topics">
-                {avail.map(c => (
-                  <button key={c.key} onClick={() => showCat(c)}>
-                    {c.label}<span>{c.items.length}</span>
-                  </button>
-                ))}
-              </div>}
-              <p className="welcome-prompt">Click a topic to see its updates, or type any question below.</p>
+              <h2>Welcome to <span>CampusFlow</span> 👋</h2>
+              <h3>Hello, {user.name.split(' ')[0]}!</h3>
+              <p>Your AI-powered college assistant is here to help you<br className="welcome-break" /> find information from published college documents.</p>
+              <div className="welcome-prompt">What would you like to know today?</div>
+              <div className="welcome-actions" aria-label="Common questions">
+                <button onClick={() => {
+                  const c = avail.find(x => x.key === 'exam')
+                  c ? showCat(c) : ask('What are the latest exam updates?')
+                }}>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5.5" width="17" height="15" rx="2" /><path d="M7.5 3v5M16.5 3v5M3.5 10h17M8 14h2M14 14h2M8 17.5h2" /></svg>
+                  Exam Updates
+                </button>
+                <button onClick={() => ask('Show me the latest circulars')}>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h10l4 4v14H5z" /><path d="M15 3v4h4M9 12h6M9 16h6" /></svg>
+                  Circulars
+                </button>
+                <button onClick={() => {
+                  const c = avail.find(x => x.key === 'fees')
+                  c ? showCat(c) : ask('What are the latest fees and policies?')
+                }}>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5.5" rx="7" ry="2.5" /><path d="M5 5.5v5c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-5M5 10.5v5c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-5" /></svg>
+                  Fees &amp; Policies
+                </button>
+                <button onClick={() => {
+                  const c = avail.find(x => x.key === 'other')
+                  c ? showCat(c) : ask('What are the latest college updates?')
+                }}>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14V9l11-4v13L4 14zM7 15l1 5h4l-2-4M18 10v4" /><path d="M20 8l1-1M20 16l1 1M21 12h2" /></svg>
+                  College Updates
+                </button>
+              </div>
+              <div className="welcome-trust">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 5-3 8.5-7 10-4-1.5-7-5-7-10V6z" /><path d="M8.5 12l2.2 2.2 4.8-5" /></svg>
+                <span>Accurate answers. Verified sources. Easy access.</span>
+              </div>
             </div>
           </div>}
           {msgs.map((m, i) => m.role === 'user' ? <div key={i} className="msg u">{m.text}</div> : m.updates ? (
@@ -505,9 +676,24 @@ function Student({ user, out }: { user: User; out: () => void }) {
         <div className="composer">
           {!!msgs.length && !!avail.length && <div className="sugg compact">{avail.map(c => <button key={c.key} onClick={() => showCat(c)}>{c.label}<span className="cnt">{c.items.length}</span></button>)}</div>}
           <div className="box">
-          <input ref={inp} value={q} disabled={busy} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === 'Enter' && ask()} placeholder={busy ? 'CampusFlow is thinking...' : 'Ask about circulars, exams, fees…'} />
+          <input ref={inp} value={q} disabled={busy} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === 'Enter' && ask()} placeholder={busy ? 'CampusFlow is thinking...' : transcribing ? 'Converting your voice to text...' : 'Ask about circulars, exams, fees…'} />
+          {listening && <div className="voice-wave" aria-label="Listening">
+            {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(i => <i key={i} style={{ animationDelay: `${i * 70}ms` }} />)}
+          </div>}
+          <button
+            type="button"
+            className={'voice-btn' + (listening ? ' listening' : '')}
+            onClick={toggleVoiceInput}
+            disabled={busy || transcribing}
+            aria-label={listening ? 'Stop and transcribe voice' : 'Start voice input'}
+            title={transcribing ? 'Transcribing...' : (listening ? 'Stop and transcribe voice' : 'Voice input')}
+          >
+            {listening
+              ? <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="6" height="6" rx="1" /></svg>
+              : <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3" /><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M8.5 21h7" /></svg>}
+          </button>
           <button className="btn p" onClick={() => ask()} disabled={busy}>{busy ? 'Thinking...' : 'Ask'}</button></div>
-          <div className="note">{busy ? 'Generating answer from verified documents...' : 'Always check the source document for official confirmation.'}</div></div>
+          <div className="note">{transcribing ? 'Converting recorded voice to text...' : busy ? 'Generating answer from verified documents...' : 'Always check the source document for official confirmation.'}</div></div>
       </div>
     </div></section>
   )

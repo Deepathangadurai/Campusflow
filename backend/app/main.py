@@ -2,6 +2,8 @@ import os, re, json, uuid, logging, hashlib, jwt, threading
 from io import BytesIO
 from zipfile import BadZipFile
 from typing import Optional
+import tempfile
+from faster_whisper import WhisperModel
 from dotenv import load_dotenv
 load_dotenv()
 from datetime import datetime, timedelta
@@ -21,7 +23,7 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("campusflow")
 SECRET = os.environ["JWT_SECRET"]
 STORE = os.getenv("STORAGE_DIR", "./data/files"); os.makedirs(STORE, exist_ok=True)
-PUBLIC = os.getenv("PUBLIC_URL", "http://localhost:5173")
+PUBLIC = os.getenv("PUBLIC_URL", "http://localhost:5174")
 EXT, MAX_BYTES = {"pdf", "jpg", "jpeg", "png", "docx", "txt"}, 25 << 20
 NOTE_MAX = 100  # short note shown to students under each document
 # Questions staff answer at upload time. key -> (label, placeholder example for the note)
@@ -80,6 +82,35 @@ hp = lambda pw: hashlib.pbkdf2_hmac("sha256", pw.encode(), SECRET.encode(), 100_
 
 app = FastAPI(title="CampusFlow")
 app.add_middleware(CORSMiddleware, allow_origins=[PUBLIC], allow_methods=["*"], allow_headers=["*"])
+
+whisper_model = None
+whisper_lock = threading.Lock()
+
+def transcribe_audio(audio: bytes, filename: str) -> str:
+    global whisper_model
+    suffix = os.path.splitext(filename or "voice.webm")[1].lower()
+    if suffix not in {".webm", ".ogg", ".wav", ".mp3", ".m4a", ".mp4"}:
+        suffix = ".webm"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp:
+        temp.write(audio)
+        temp_path = temp.name
+    try:
+        with whisper_lock:
+            if whisper_model is None:
+                whisper_model = WhisperModel("tiny", device="cpu", compute_type="int8")
+            segments, _ = whisper_model.transcribe(
+                temp_path,
+                language="en",
+                vad_filter=True,
+                beam_size=3,
+            )
+            text = " ".join(segment.text.strip() for segment in segments).strip()
+        return text
+    finally:
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
 
 @app.on_event("startup")
 def boot():
@@ -162,6 +193,36 @@ def register_staff(b: StaffRegister, s: Session = Depends(db)):
     log.info("staff registered: %s (%s)", u.email, u.department)
     token = jwt.encode({"sub": str(u.id), "exp": datetime.utcnow() + timedelta(hours=8)}, SECRET)
     return {"token": token}
+
+@app.post("/api/staffs")
+def create_staff(b: StaffRegister, u: User = Depends(staff), s: Session = Depends(db)):
+    """An existing staff member creates another staff account."""
+    if not b.name.strip() or not b.email.strip() or not b.password.strip() or not b.department.strip():
+        raise HTTPException(400, "All fields are required")
+    if len(b.password) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters")
+    email = b.email.lower().strip()
+    if s.query(User).filter_by(email=email).first():
+        raise HTTPException(409, "An account with this email already exists")
+    username = email.split("@")[0]
+    base = username
+    n = 1
+    while s.query(User).filter_by(username=username).first():
+        username = f"{base}{n}"
+        n += 1
+    st = User(name=b.name.strip(), username=username, email=email,
+               pw_hash=hp(b.password), role="staff", department=b.department.strip())
+    s.add(st)
+    s.commit()
+    log.info("staff account created by %s: %s (%s)", u.email, st.email, st.department)
+    return {"id": st.id, "name": st.name, "email": st.email,
+            "department": st.department, "created_at": st.created_at.isoformat() + "Z"}
+
+@app.get("/api/staffs")
+def list_staffs(u: User = Depends(staff), s: Session = Depends(db)):
+    rows = s.query(User).filter_by(role="staff").order_by(User.id.desc()).all()
+    return [{"id": r.id, "name": r.name, "email": r.email or "", "department": r.department,
+             "created_at": r.created_at.isoformat() + "Z"} for r in rows]
 
 @app.post("/api/login")
 def login(b: Login, s: Session = Depends(db)):
@@ -388,6 +449,20 @@ def edit_meta(doc_id: int, b: Meta, u: User = Depends(staff), s: Session = Depen
 @app.get("/api/categories")
 def categories(u: User = Depends(current)):
     return [{"key": k, "label": v[0], "hint": v[1]} for k, v in CATEGORIES.items()]
+
+@app.post("/api/speech/transcribe")
+async def speech_transcribe(audio: UploadFile = File(...), u: User = Depends(current)):
+    content = await audio.read(10 << 20)
+    if not content:
+        raise HTTPException(400, "No audio recording was received")
+    try:
+        text = transcribe_audio(content, audio.filename or "voice.webm")
+    except Exception as exc:
+        log.exception("Speech transcription failed")
+        raise HTTPException(500, "Voice could not be transcribed") from exc
+    if not text:
+        raise HTTPException(400, "No speech was detected")
+    return {"text": text}
 
 @app.get("/api/updates")
 def updates(u: User = Depends(current), s: Session = Depends(db)):
