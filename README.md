@@ -1,5 +1,5 @@
 # CampusFlow
-Role-based RAG assistant. FastAPI + SQLite + in-process vector search + BM25 + Ollama; React/TypeScript/Vite UI.
+Role-based RAG assistant with voice input. FastAPI + SQLite + in-process vector search + BM25 + Ollama; React/TypeScript/Vite UI.
 No Docker, no vector-database server.
 
 ## One-time setup
@@ -17,13 +17,22 @@ No Docker, no vector-database server.
 4. Frontend: `cd frontend && npm install`
 
 ## Run (two terminals)
-- Backend (inside `backend`, venv active): `uvicorn app.main:app --reload --port 8000`
+- Backend (Windows, from the repository root):
+  ```
+  cd backend
+  .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000
+  ```
+- Backend (macOS/Linux, from the repository root):
+  ```
+  cd backend
+  ./.venv/bin/python -m uvicorn app.main:app --reload --port 8000
+  ```
 - Frontend (inside `frontend`): `npm run dev`
 - Open http://localhost:5174 and sign in with the email address and password for an account provisioned by your college.
 
 ## Bulk student accounts
 From the staff dashboard, open **Students** to upload an `.xlsx` workbook or create a student account manually. The first sheet must have a header row named `Name`, `Department`, `Mail ID` (or `Email`), and `Password`. Each valid row creates one student account; duplicate email addresses and invalid rows are skipped and reported with their spreadsheet row numbers. Passwords must be at least 6 characters and are stored as hashes. Each workbook is limited to 1,000 student rows and 5 MB.
 
-Answer generation uses the local Ollama model. The first upload downloads the MiniLM embedding model (internet needed once). Data lives in `backend/data/`.
-`CONF_THRESHOLD` is the confidence gate (spec suggests 0.72; defaults to 0.35 - raise it until off-topic questions hit the fallback).
+Answer generation uses the local Ollama model. The first document upload downloads the MiniLM embedding model, and the first voice transcription downloads the Faster-Whisper `tiny` model (internet needed once for each). Data lives in `backend/data/`.
+`CONF_THRESHOLD` is the retrieval confidence gate; it defaults to `0.25` and can be adjusted in `.env`.
 API docs: http://localhost:8000/docs
